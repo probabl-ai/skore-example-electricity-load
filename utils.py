@@ -1,4 +1,5 @@
 import datetime
+import json
 from pathlib import Path
 import subprocess
 
@@ -11,7 +12,7 @@ from sklearn.metrics import mean_absolute_percentage_error
 from sklearn.ensemble import HistGradientBoostingRegressor
 import plotly.graph_objects as go
 
-_DEFAULT_CITIES = (
+_ALL_CITIES = (
     "paris",
     "lyon",
     "marseille",
@@ -39,6 +40,15 @@ def get_output_dir(prefix=""):
         project_dir() / "results" / f"{prefix}{datetime.datetime.now().isoformat()}"
     )
     output_dir.mkdir(parents=True)
+    (output_dir / "metadata.json").write_text(
+        json.dumps(
+            {
+                "commit": last_commit_hash(),
+                "date": datetime.datetime.now().isoformat(),
+            }
+        ),
+        "utf-8",
+    )
     return output_dir
 
 
@@ -150,7 +160,7 @@ def add_lagged_features(target_time, load_mw_history, horizon):
     return target_time.join(features, on="time", how="left", maintain_order="left")
 
 
-def add_weather(target_time, horizon, city_names=_DEFAULT_CITIES, how="local"):
+def add_weather(target_time, horizon, city_names="all", temp_only=False, how="local"):
     assert horizon <= 24
     # NOTE: here ideally we should retrieve the exact weather forecast
     # corresponding to the horizon. But we do not have it available in the
@@ -158,11 +168,15 @@ def add_weather(target_time, horizon, city_names=_DEFAULT_CITIES, how="local"):
     if callable(how):
         return how(target_time, city_names)
     assert isinstance(how, str) and how == "local"
+    if isinstance(city_names, str):
+        assert city_names == "all"
+        city_names = _ALL_CITIES
     with_weather = target_time.lazy()
     for city in city_names:
         with_weather = with_weather.join(
             pl.scan_parquet(data_dir() / f"weather_{city}.parquet")
             .with_columns(pl.col("time").dt.cast_time_unit("us"))
+            .select((pl.col("time"), cs.matches(".*temperature.*")) if temp_only else pl.all())
             .select(
                 pl.col("time"),
                 (~cs.by_name("time"))
@@ -267,13 +281,31 @@ def make_data_op(horizon=24):
     X = filtered["X"].skb.mark_as_X()
     y = filtered["y"].skb.mark_as_y()
 
+    temp_only = skrub.choose_bool(name="temp_only", default=False)
+    cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
     features = (
         X.skb.apply_func(add_lagged_features, load_mw_history, horizon=horizon)
-        .skb.apply_func(add_weather, how=weather_source, horizon=horizon)
+        .skb.apply_func(
+            add_weather,
+            how=weather_source,
+            horizon=horizon,
+            temp_only=temp_only,
+            city_names=cities,
+        )
         .skb.apply_func(add_holidays)
     )
 
-    pred = features.skb.apply(HistGradientBoostingRegressor(), y=y)
+    regressor = HistGradientBoostingRegressor(
+        random_state=0,
+        loss=skrub.choose_from(["squared_error", "poisson", "gamma"], name="loss"),
+        learning_rate=skrub.choose_float(
+            0.01, 0.7, default=0.1, log=True, name="learning_rate"
+        ),
+        max_leaf_nodes=skrub.choose_int(
+            3, 300, default=30, log=True, name="max_leaf_nodes"
+        ),
+    )
+    pred = features.skb.apply(regressor, y=y)
 
     return pred
 

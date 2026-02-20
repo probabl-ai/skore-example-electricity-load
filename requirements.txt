@@ -1,0 +1,9 @@
+polars
+pandas
+pyarrow
+skore
+skrub
+pydot
+optuna
+optuna-dashboard
+plotly

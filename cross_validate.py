@@ -1,15 +1,8 @@
-import datetime
 import json
 
 import utils
 
 output_dir = utils.get_output_dir("cross_validate_")
-info_file = output_dir / "info.json"
-info = {
-    "commit": utils.last_commit_hash(),
-    "date": datetime.datetime.now().isoformat(),
-}
-info_file.write_text(json.dumps(info), "utf-8")
 
 env = utils.get_env()
 pred = utils.make_data_op(horizon=24)
@@ -33,8 +26,7 @@ learner.report(
 cv_predictions, cv_scores = utils.cross_val_predict(pred, environment=env)
 cv_predictions.write_parquet(output_dir / "cv_predictions.parquet")
 
-info["cv_results"] = cv_scores
-info_file.write_text(json.dumps(info), "utf-8")
+(output_dir / "cv_scores").write_text(json.dumps(cv_scores), "utf-8")
 
 fig = utils.plot_predictions(cv_predictions)
 fig.write_html(output_dir / "cv_predictions_plot.html")
