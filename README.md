@@ -12,12 +12,14 @@ improved by introducing more tools, good practices, etc.
 
 ## Contents
 
-For simplicity, historical data is stored in the repo in `datasets`.
-Outputs can be stored in `results` (ignored by git). `utils.py` contains
-functions for loading data, defining the pipeline, cross-validation splits etc.
-. `eda.py`, `cross_validate.py` and `search.py` are scripts that perform basic
-exploratory data analysis, cross-validating the default pipeline, running
-hyperparameter search & scoring the best model on a held-out set.
+For simplicity, historical data is stored in the repo in `datasets`. Outputs can
+be stored in `results` (ignored by git). `electricity_load_forecasting.py`
+contains functions for loading data, defining the pipeline, cross-validation
+splits etc. . `eda.py`, `cross_validate.py` and `search.py` are scripts that
+perform basic exploratory data analysis, cross-validating the default pipeline,
+running hyperparameter search & scoring the best model on a held-out set.
+
+`requirements.txt` lists a few packages used in the scripts.
 
 ## Challenges
 
