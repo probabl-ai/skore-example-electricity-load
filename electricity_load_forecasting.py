@@ -176,7 +176,11 @@ def add_weather(target_time, horizon, city_names="all", temp_only=False, how="lo
         with_weather = with_weather.join(
             pl.scan_parquet(data_dir() / f"weather_{city}.parquet")
             .with_columns(pl.col("time").dt.cast_time_unit("us"))
-            .select((pl.col("time"), cs.matches(".*temperature.*")) if temp_only else pl.all())
+            .select(
+                (pl.col("time"), cs.matches(".*temperature.*"))
+                if temp_only
+                else pl.all()
+            )
             .select(
                 pl.col("time"),
                 (~cs.by_name("time"))
@@ -364,3 +368,16 @@ def plot_predictions(results):
     )
     fig.update_layout(height=600, title="CV predicted load mw")
     return fig
+
+
+def get_report_predictions(report):
+    all_predictions = []
+    for i, r in enumerate(report.estimator_reports_):
+        all_predictions.append(
+            r.X_test.with_columns(
+                true_load_mw=r.y_test,
+                predicted_load_mw=r.get_predictions(data_source="test"),
+                split=pl.lit(i),
+            )
+        )
+    return pl.concat(all_predictions, how="vertical")
