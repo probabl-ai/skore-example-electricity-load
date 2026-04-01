@@ -30,7 +30,7 @@ learner.report(
 )
 
 # %%
-report = skore.CrossValidationReport(pred, data=env, splitter=elf.Splitter())
+report = skore.evaluate(pred, data=env, splitter=elf.Splitter())
 print(report.metrics.summarize(metric="neg_mean_absolute_percentage_error"))
 
 with open(output_dir / 'skore_report.pickle', 'wb') as f:
