@@ -30,8 +30,9 @@ learner.report(
 )
 
 # %%
-report = skore.evaluate(pred, data=env, splitter=elf.Splitter())
-print(report.metrics.summarize(metric="neg_mean_absolute_percentage_error"))
+report = skore.CrossValidationReport(pred, data=env, splitter=elf.Splitter())
+report.metrics.add("mean_absolute_percentage_error")
+print(report.metrics.summarize(metric="mean_absolute_percentage_error"))
 
 with open(output_dir / 'skore_report.pickle', 'wb') as f:
     pickle.dump(report, f)
@@ -40,7 +41,7 @@ cv_predictions = elf.get_report_predictions(report)
 cv_predictions.write_parquet(output_dir / "cv_predictions.parquet")
 
 cv_scores = (
-    report.metrics.summarize(metric="neg_mean_absolute_percentage_error")
+    report.metrics.summarize(metric="mean_absolute_percentage_error")
     .frame(aggregate=None, flat_index=True)
     .T["Mean Absolute Percentage Error"]
     .to_list()
