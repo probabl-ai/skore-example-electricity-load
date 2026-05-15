@@ -32,7 +32,7 @@ learner.report(
 # %%
 report = skore.CrossValidationReport(pred, data=env, splitter=elf.Splitter())
 report.metrics.add("mean_absolute_percentage_error")
-print(report.metrics.summarize(metric="mean_absolute_percentage_error"))
+print(report.metrics.summarize(metric="mean_absolute_percentage_error").frame())
 
 with open(output_dir / 'skore_report.pickle', 'wb') as f:
     pickle.dump(report, f)
