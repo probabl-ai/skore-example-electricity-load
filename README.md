@@ -21,4 +21,4 @@ The current version of the pipeline looks like this:
 
 ![](graph.png)
 
-See the report for an actual run [here](https://probabl-ai.github.io/skore-example-electricity-load/index.html)
+See the report for an actual run [here](https://probabl-ai.github.io/skore-example-electricity-load/full_report/index.html)

@@ -42,3 +42,25 @@ fig.show(renderer="browser")
 fig = elf.plot_predictions(cv_predictions, horizons=(24,))
 fig.write_html(output_dir / "cv_predictions_24h_plot.html")
 fig.show(renderer="browser")
+
+# %%
+index = """
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>cross-validation result</title>
+    </head>
+    <body>
+        <ul>
+            <li><a href="full_report/index.html">data op report</a></li>
+            <li><a href="fit_report/index.html">data op fit report</a></li>
+            <li><a href="predict_report/index.html">data op predict report</a></li>
+            <li><a href="cv_predictions_plot.html">multiple horizon predictions</a></li>
+            <li><a href="cv_predictions_1h_plot.html">1-h horizon predictions</a></li>
+            <li><a href="cv_predictions_24h_plot.html">24-h horizon predictions</a></li>
+        </ul>
+    </body>
+</html>
+"""
+(output_dir / "index.html").write_text(index, "utf-8")
