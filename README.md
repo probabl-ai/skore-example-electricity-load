@@ -20,3 +20,5 @@ running hyperparameter search & scoring the best model on a held-out set.
 The current version of the pipeline looks like this:
 
 ![](graph.png)
+
+See the report for an actual run [here](https://probabl-ai.github.io/skore-example-electricity-load/index.html)
