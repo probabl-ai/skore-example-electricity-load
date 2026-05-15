@@ -1,3 +1,4 @@
+import re
 import datetime
 import json
 from pathlib import Path
@@ -360,41 +361,59 @@ def cross_val_predict(data_op, environment=None):
         learner.fit(split["train"])
         prediction = learner.predict(split["test"])
         all_predictions.append(
-            split["X_test"].with_columns(
-                true_load_mw=split["y_test"],
-                predicted_load_mw=prediction,
-                split=pl.lit(i),
-            )
+            pl.concat(
+                [
+                    split["X_test"],
+                    split["y_test"],
+                    prediction.rename("pred_{}".format),
+                ],
+                how="horizontal",
+            ).with_columns(split=pl.lit(i)),
         )
-        mape = mean_absolute_percentage_error(split["y_test"], prediction)
-        print(f"{mape:.1%}")
+        mape = mean_absolute_percentage_error(
+            split["y_test"], prediction, multioutput="raw_values"
+        )
+        print(
+            split["X_test"]["prediction_time"].min().strftime("%Y-%m-%d")
+            + ": "
+            + " ".join([f"{h}: {m:.1%}" for h, m in zip(prediction.columns, mape)])
+        )
         all_scores["mape"].append(mape)
 
     all_predictions = pl.concat(all_predictions, how="vertical")
     return all_predictions, all_scores
 
 
-def plot_predictions(results):
+def plot_predictions(results, horizons=None):
+    if horizons is None:
+        horizons = [
+            int(m.group(1))
+            for c in results.columns
+            if (m := re.match(r"^pred_(\d+)h$", c)) is not None
+        ]
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=results["time"],
-            y=results["true_load_mw"],
-            mode="lines+markers",
-            name="true_load_mw",
-            hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
+    for i, h in enumerate(horizons):
+        target_time = results["prediction_time"] + datetime.timedelta(hours=h)
+        if not i:
+            fig.add_trace(
+                go.Scatter(
+                    x=target_time,
+                    y=results[f"{h}h"],
+                    mode="lines+markers",
+                    name="true_load_mw",
+                    hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
+                )
+            )
+        fig.add_trace(
+            go.Scatter(
+                x=target_time,
+                y=results[f"pred_{h}h"],
+                mode="lines+markers",
+                name=f"predicted_load_mw_{h}h",
+                hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
+            )
         )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=results["time"],
-            y=results["predicted_load_mw"],
-            mode="lines+markers",
-            name="predicted_load_mw",
-            hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
-        )
-    )
-    fig.update_layout(height=600, title="CV predicted load mw")
+    fig.update_layout(height=600, title=f"CV predicted load mw")
     return fig
 
 
@@ -402,10 +421,13 @@ def get_report_predictions(report):
     all_predictions = []
     for i, r in enumerate(report.estimator_reports_):
         all_predictions.append(
-            r.X_test.with_columns(
-                true_load_mw=r.y_test,
-                predicted_load_mw=r.get_predictions(data_source="test"),
-                split=pl.lit(i),
-            )
+            pl.concat(
+                [
+                    r.X_test,
+                    r.y_test,
+                    r.get_predictions(data_source="test").rename("pred_{}".format),
+                ],
+                how="horizontal",
+            ).with_columns(split=pl.lit(i))
         )
     return pl.concat(all_predictions, how="vertical")

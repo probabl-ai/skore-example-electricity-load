@@ -8,7 +8,7 @@ import electricity_load_forecasting as elf
 output_dir = elf.get_output_dir("cross_validate_")
 
 env = elf.get_env()
-pred = elf.make_data_op(horizon=24)
+pred = elf.make_data_op(horizons=(1, 12, 24))
 
 # %%
 # optional: make skrub reports
@@ -30,24 +30,19 @@ learner.report(
 )
 
 # %%
-report = skore.CrossValidationReport(pred, data=env, splitter=elf.Splitter())
-report.metrics.add("mean_absolute_percentage_error")
-print(report.metrics.summarize(metric="mean_absolute_percentage_error").frame())
-
-with open(output_dir / 'skore_report.pickle', 'wb') as f:
-    pickle.dump(report, f)
-
-cv_predictions = elf.get_report_predictions(report)
+cv_predictions, scores = elf.cross_val_predict(pred, env)
+print(cv_predictions)
 cv_predictions.write_parquet(output_dir / "cv_predictions.parquet")
-
-cv_scores = (
-    report.metrics.summarize(metric="mean_absolute_percentage_error")
-    .frame(aggregate=None, flat_index=True)
-    .T["Mean Absolute Percentage Error"]
-    .to_list()
-)
-(output_dir / "cv_scores").write_text(json.dumps(cv_scores), "utf-8")
 
 fig = elf.plot_predictions(cv_predictions)
 fig.write_html(output_dir / "cv_predictions_plot.html")
+fig.show(renderer="browser")
+
+
+fig = elf.plot_predictions(cv_predictions, horizons=(1,))
+fig.write_html(output_dir / "cv_predictions_1h_plot.html")
+fig.show(renderer="browser")
+
+fig = elf.plot_predictions(cv_predictions, horizons=(24,))
+fig.write_html(output_dir / "cv_predictions_24h_plot.html")
 fig.show(renderer="browser")
