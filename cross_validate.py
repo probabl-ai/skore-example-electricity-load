@@ -1,7 +1,4 @@
-import pickle
 import json
-
-import skore
 
 import electricity_load_forecasting as elf
 
@@ -13,8 +10,7 @@ pred = elf.make_data_op(horizons=(1, 12, 24))
 # %%
 # optional: make skrub reports
 pred.skb.full_report(environment=env, output_dir=output_dir / "full_report")
-
-split = pred.skb.train_test_split(environment=env, split_func=elf.train_test_split)
+split = pred.skb.train_test_split(environment=env)
 learner = pred.skb.make_learner()
 learner.report(
     environment=split["train"],
@@ -31,8 +27,8 @@ learner.report(
 
 # %%
 cv_predictions, scores = elf.cross_val_predict(pred, env)
-print(cv_predictions)
 cv_predictions.write_parquet(output_dir / "cv_predictions.parquet")
+(output_dir / "scores.json").write_text(json.dumps(scores), "utf-8")
 
 fig = elf.plot_predictions(cv_predictions)
 fig.write_html(output_dir / "cv_predictions_plot.html")

@@ -7,7 +7,7 @@ import electricity_load_forecasting as elf
 
 output_dir = elf.get_output_dir("search_")
 env = elf.get_env()
-pred = elf.make_data_op(horizon=24)
+pred = elf.make_data_op()
 
 storage = f"sqlite:///{output_dir / 'optuna'}"
 study_name = "randomized_search"
@@ -15,10 +15,8 @@ split = pred.skb.train_test_split(environment=env, split_func=elf.train_test_spl
 search = pred.skb.make_randomized_search(
     backend="optuna",
     n_iter=64,
-    scoring="neg_mean_absolute_percentage_error",
     n_jobs=1,
     refit=True,
-    cv=elf.Splitter(),
     storage=storage,
     study_name=study_name,
 )
@@ -29,9 +27,7 @@ with open(output_dir / "search.pickle", "wb") as f:
 
 search.results_.to_csv(output_dir / "search_results.csv", index=False)
 predictions = search.predict(split["test"])
-results = split["X_test"].with_columns(
-    true_load_mw=split["y_test"], predicted_load_mw=predictions
-)
+results = elf.concat_X_y_predictions(split["X_test"], split["y_test"], predictions)
 results.write_parquet(output_dir / "predictions.parquet")
 test_score = mean_absolute_percentage_error(split["y_test"], predictions)
 print(f"MAPE: {test_score}")
