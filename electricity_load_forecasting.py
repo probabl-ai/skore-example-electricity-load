@@ -64,10 +64,7 @@ def last_commit_hash():
     ).stdout.strip()
 
 
-def fetch_load_mw_history(how="local"):
-    if callable(how):
-        return how()
-    assert isinstance(how, str) and how == "local"
+def fetch_load_mw_history():
     return (
         pl.scan_csv(
             data_dir() / "Total Load - Day Ahead*.csv", null_values=["N/A", "-"]
@@ -115,19 +112,27 @@ def resample(df):
 
 class GetXy(BaseEstimator):
     def fit_transform(self, data, y=None):
-        new_data = data["target_time"].join(
-            data["load_mw_history"].drop_nulls(),
-            on="time",
-            how="inner",
-            maintain_order="left",
+        load = (
+            data["load_mw_history"]
+            .select(
+                pl.col("time"),
+                *[
+                    pl.col("load_mw").shift(-h).alias(f"{h}h")
+                    for h in data["horizons"]
+                ],
+            )
+            .drop_nulls()
+        )
+        X_y = data["prediction_time"].join(
+            load, on="time", how="inner", maintain_order="left"
         )
         return {
-            "X": new_data[["time"]],
-            "y": new_data[f"load_mw"],
+            "X": X_y[["time"]],
+            "y": X_y.drop("time"),
         }
 
     def transform(self, data):
-        return {"X": data["target_time"], "y": None}
+        return {"X": data["prediction_time"], "y": None}
 
     def fit(self, data, y=None):
         return self
@@ -156,18 +161,20 @@ def add_lagged_features(target_time, load_mw_history, horizon):
     iqr = rolling(
         (pl.col("load_mw").quantile(0.75) - pl.col("load_mw").quantile(0.25)), "iqr"
     )
-    features = resample(load_mw_history).select(pl.col("time"), *lags, *medians, *iqr)
-    return target_time.join(features, on="time", how="left", maintain_order="left")
+    features = load_mw_history.select(pl.col("time"), *lags, *medians, *iqr)
+    return target_time.join(
+        features,
+        left_on="target_time",
+        right_on="time",
+        how="left",
+        maintain_order="left",
+    )
 
 
-def add_weather(target_time, horizon, city_names="all", temp_only=False, how="local"):
-    assert horizon <= 24
+def add_weather(target_time, city_names="all", temp_only=False):
     # NOTE: here ideally we should retrieve the exact weather forecast
     # corresponding to the horizon. But we do not have it available in the
     # historical data. We just take the only forecast we have.
-    if callable(how):
-        return how(target_time, city_names)
-    assert isinstance(how, str) and how == "local"
     if isinstance(city_names, str):
         assert city_names == "all"
         city_names = _ALL_CITIES
@@ -266,38 +273,41 @@ def train_test_split(X, y, test_start_date="2025-01-01"):
     return X[train], X[test], y[train], y[test]
 
 
-def make_data_op(horizon=24):
+def add_target_time(df, horizon):
+    return df.with_columns(
+        (pl.col("time") + pl.duration(hours=horizon)).alias("target_time")
+    )
+
+
+def add_features(df, horizon, temp_only, city_names, load_mw_history):
+    df = add_target_time(df, horizon=horizon)
+    df = add_weather(df, temp_only=temp_only, city_names=city_names)
+    df = add_holidays(df)
+    df = add_lagged_features(df, load_mw_history=load_mw_history, horizon=horizon)
+    return df
+
+
+def make_data_op(horizons=(1, 2, 12, 24)):
     range_start = skrub.var("start")
     range_end = skrub.var("end")
-    load_mw_source = skrub.var("load_mw_source")
-    weather_source = skrub.var("weather_source")
-
-    horizon = skrub.as_data_op(horizon).skb.set_name("horizon")
-
-    load_mw_history = load_mw_source.skb.apply_func(
-        fetch_load_mw_history
-    ).skb.apply_func(get_1h_average)
-
-    target_time = skrub.deferred(time_range)(range_start, range_end)
-    filtered = skrub.as_data_op(
-        {"target_time": target_time, "load_mw_history": load_mw_history}
+    load_mw_history = (
+        skrub.deferred(fetch_load_mw_history)()
+        .skb.apply_func(get_1h_average)
+        .skb.apply_func(resample)
+    )
+    prediction_time = skrub.deferred(time_range)(range_start, range_end)
+    X_y = skrub.as_data_op(
+        {
+            "prediction_time": prediction_time,
+            "load_mw_history": load_mw_history,
+            "horizons": horizons,
+        }
     ).skb.apply(GetXy())
-    X = filtered["X"].skb.mark_as_X()
-    y = filtered["y"].skb.mark_as_y()
+    X = X_y["X"].skb.mark_as_X()
+    y = X_y["y"].skb.mark_as_y()
 
     temp_only = skrub.choose_bool(name="temp_only", default=False)
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
-    features = (
-        X.skb.apply_func(add_lagged_features, load_mw_history, horizon=horizon)
-        .skb.apply_func(
-            add_weather,
-            how=weather_source,
-            horizon=horizon,
-            temp_only=temp_only,
-            city_names=cities,
-        )
-        .skb.apply_func(add_holidays)
-    )
 
     regressor = HistGradientBoostingRegressor(
         random_state=0,
@@ -309,17 +319,39 @@ def make_data_op(horizon=24):
             3, 300, default=30, log=True, name="max_leaf_nodes"
         ),
     )
-    pred = features.skb.apply(regressor, y=y)
+    all_pred = {}
+    for h in horizons:
+        pred = (
+            X.skb.apply_func(
+                add_features,
+                horizon=h,
+                temp_only=temp_only,
+                city_names=cities,
+                load_mw_history=load_mw_history,
+            )
+            .skb.set_name(f"feat_{h}h")
+            .skb.drop(["time", "target_time"])
+            .skb.apply(regressor, y=y[f"{h}h"])
+            .skb.set_name(f"pred_{h}h")
+        )
+        all_pred[h] = pred
 
-    return pred
+    multi_horizon_pred = (
+        skrub.as_data_op(all_pred)
+        .skb.apply_func(concat_horizons)
+        .skb.with_scoring("neg_mean_absolute_percentage_error")
+    )
+    return multi_horizon_pred
+
+
+def concat_horizons(all_pred, mode=skrub.eval_mode()):
+    return pl.DataFrame({f"{h}h": v for h, v in all_pred.items()})
 
 
 def get_env():
     return {
         "start": "2021-03-23",
         "end": "2025-05-31",
-        "load_mw_source": "local",
-        "weather_source": "local",
     }
 
 
