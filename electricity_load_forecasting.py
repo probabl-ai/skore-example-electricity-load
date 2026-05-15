@@ -169,7 +169,16 @@ def add_lagged_features(target_time, load_mw_history, horizon):
     )
 
 
-def add_weather(target_time, city_names="all", temp_only=False):
+def fetch_city_weather(city):
+    return pl.scan_parquet(data_dir() / f"weather_{city}.parquet")
+
+
+def add_weather(
+    target_time,
+    city_names="all",
+    temp_only=False,
+    city_weather_fetcher=fetch_city_weather,
+):
     # NOTE: here ideally we should retrieve the exact weather forecast
     # corresponding to the horizon. But we do not have it available in the
     # historical data. We just take the only forecast we have.
@@ -179,7 +188,7 @@ def add_weather(target_time, city_names="all", temp_only=False):
     with_weather = target_time.lazy()
     for city in city_names:
         with_weather = with_weather.join(
-            pl.scan_parquet(data_dir() / f"weather_{city}.parquet")
+            city_weather_fetcher(city)
             .with_columns(pl.col("time").dt.cast_time_unit("us"))
             .select(
                 (pl.col("time"), cs.matches(".*temperature.*"))
@@ -279,9 +288,16 @@ def add_target_time(df, horizon):
     )
 
 
-def add_features(df, horizon, temp_only, city_names, load_mw_history):
+def add_features(
+    df, horizon, temp_only, city_names, load_mw_history, city_weather_fetcher
+):
     df = add_target_time(df, horizon=horizon)
-    df = add_weather(df, temp_only=temp_only, city_names=city_names)
+    df = add_weather(
+        df,
+        temp_only=temp_only,
+        city_names=city_names,
+        city_weather_fetcher=city_weather_fetcher,
+    )
     df = add_holidays(df)
     df = add_lagged_features(df, load_mw_history=load_mw_history, horizon=horizon)
     return df
@@ -294,8 +310,14 @@ def concat_horizons(all_pred, mode=skrub.eval_mode()):
 def make_data_op(horizons=(1, 2, 12, 24)):
     range_start = skrub.var("start")
     range_end = skrub.var("end")
+    load_mw_history_fetcher = skrub.as_data_op(fetch_load_mw_history).skb.set_name(
+        "load_mw_history_fetcher"
+    )
+    city_weather_fetcher = skrub.as_data_op(fetch_city_weather).skb.set_name(
+        "city_weather_fetcher"
+    )
     prediction_time = skrub.deferred(time_range)(range_start, range_end)
-    load_mw_history = skrub.deferred(fetch_load_mw_history)().skb.apply_func(resample)
+    load_mw_history = load_mw_history_fetcher().skb.apply_func(resample)
     X_y = skrub.as_data_op(
         {
             "prediction_time": prediction_time,
@@ -329,6 +351,7 @@ def make_data_op(horizons=(1, 2, 12, 24)):
                 temp_only=temp_only,
                 city_names=cities,
                 load_mw_history=load_mw_history,
+                city_weather_fetcher=city_weather_fetcher,
             )
             .skb.set_name(f"feat_{h}h")
             .skb.drop(["prediction_time", "target_time"])
