@@ -82,12 +82,6 @@ def fetch_load_mw_history():
     )
 
 
-def get_1h_average(load_mw_history):
-    return load_mw_history.group_by(pl.col("time").dt.truncate("1h")).agg(
-        pl.col("load_mw").mean()
-    )
-
-
 def time_range(start, end):
     if isinstance(start, str):
         start = datetime.datetime.fromisoformat(start)
@@ -103,10 +97,13 @@ def time_range(start, end):
     )
 
 
-def resample(df):
-    all_times = df["time"]
+def resample(load_mw_history):
+    averaged = load_mw_history.group_by(pl.col("time").dt.truncate("1h")).agg(
+        pl.col("load_mw").mean()
+    )
+    all_times = averaged["time"]
     return time_range(all_times.min(), all_times.max()).join(
-        df, on="time", how="left", maintain_order="left"
+        averaged, on="time", how="left", maintain_order="left"
     )
 
 
@@ -127,7 +124,7 @@ class GetXy(BaseEstimator):
             load, on="time", how="inner", maintain_order="left"
         )
         return {
-            "X": X_y[["time"]],
+            "X": X_y.select(pl.col("time").alias("prediction_time")),
             "y": X_y.drop("time"),
         }
 
@@ -194,7 +191,8 @@ def add_weather(target_time, city_names="all", temp_only=False):
                 .as_expr()
                 .name.map(f"weather_{{}}_{city}".format),
             ),
-            on="time",
+            left_on="target_time",
+            right_on="time",
             how="left",
             maintain_order="left",
         )
@@ -202,7 +200,7 @@ def add_weather(target_time, city_names="all", temp_only=False):
 
 
 def add_holidays(target_time):
-    fr_time = pl.col("time").dt.convert_time_zone("Europe/Paris")
+    fr_time = pl.col("target_time").dt.convert_time_zone("Europe/Paris")
     fr_year_min = target_time.select(fr_time.dt.year().min()).item()
     fr_year_max = target_time.select(fr_time.dt.year().max()).item()
     holidays_fr = holidays.country_holidays(
@@ -221,16 +219,17 @@ def _split_indices(X, test_start_date, test_length_days):
     train = (
         X.with_row_index()
         .filter(
-            pl.col("time") < test_start_date - datetime.timedelta(_TRAIN_TEST_GAP_DAYS)
+            pl.col("prediction_time")
+            < test_start_date - datetime.timedelta(_TRAIN_TEST_GAP_DAYS)
         )["index"]
         .to_numpy()
     )
     test = (
         X.with_row_index()
         .filter(
-            (pl.col("time") >= test_start_date)
+            (pl.col("prediction_time") >= test_start_date)
             & (
-                pl.col("time")
+                pl.col("prediction_time")
                 < test_start_date + datetime.timedelta(days=test_length_days)
             )
         )["index"]
@@ -244,9 +243,9 @@ class Splitter:
         min_train_days = 365 * 2
         test_length_days = 24 * 7  # 24 weeks
         test_start_dates = pl.date_range(
-            X["time"].min()
+            X["prediction_time"].min()
             + datetime.timedelta(days=min_train_days + _TRAIN_TEST_GAP_DAYS),
-            X["time"].max(),
+            X["prediction_time"].max(),
             interval=datetime.timedelta(days=test_length_days),
             closed="left",
             eager=True,
@@ -275,7 +274,7 @@ def train_test_split(X, y, test_start_date="2025-01-01"):
 
 def add_target_time(df, horizon):
     return df.with_columns(
-        (pl.col("time") + pl.duration(hours=horizon)).alias("target_time")
+        (pl.col("prediction_time") + pl.duration(hours=horizon)).alias("target_time")
     )
 
 
@@ -287,15 +286,15 @@ def add_features(df, horizon, temp_only, city_names, load_mw_history):
     return df
 
 
+def concat_horizons(all_pred, mode=skrub.eval_mode()):
+    return pl.DataFrame({f"{h}h": v for h, v in all_pred.items()})
+
+
 def make_data_op(horizons=(1, 2, 12, 24)):
     range_start = skrub.var("start")
     range_end = skrub.var("end")
-    load_mw_history = (
-        skrub.deferred(fetch_load_mw_history)()
-        .skb.apply_func(get_1h_average)
-        .skb.apply_func(resample)
-    )
     prediction_time = skrub.deferred(time_range)(range_start, range_end)
+    load_mw_history = skrub.deferred(fetch_load_mw_history)().skb.apply_func(resample)
     X_y = skrub.as_data_op(
         {
             "prediction_time": prediction_time,
@@ -319,6 +318,7 @@ def make_data_op(horizons=(1, 2, 12, 24)):
             3, 300, default=30, log=True, name="max_leaf_nodes"
         ),
     )
+
     all_pred = {}
     for h in horizons:
         pred = (
@@ -330,7 +330,7 @@ def make_data_op(horizons=(1, 2, 12, 24)):
                 load_mw_history=load_mw_history,
             )
             .skb.set_name(f"feat_{h}h")
-            .skb.drop(["time", "target_time"])
+            .skb.drop(["prediction_time", "target_time"])
             .skb.apply(regressor, y=y[f"{h}h"])
             .skb.set_name(f"pred_{h}h")
         )
@@ -342,10 +342,6 @@ def make_data_op(horizons=(1, 2, 12, 24)):
         .skb.with_scoring("neg_mean_absolute_percentage_error")
     )
     return multi_horizon_pred
-
-
-def concat_horizons(all_pred, mode=skrub.eval_mode()):
-    return pl.DataFrame({f"{h}h": v for h, v in all_pred.items()})
 
 
 def get_env():
