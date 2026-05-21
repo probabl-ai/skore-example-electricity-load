@@ -32,7 +32,9 @@ def fetch_load_mw_history():
 # %%
 import skrub
 
-raw_load_mw_history = skrub.deferred(fetch_load_mw_history)()
+raw_load_mw_history = skrub.as_data_op(fetch_load_mw_history).skb.set_name(
+    "load_mw_history_fetcher"
+)()
 raw_load_mw_history
 
 # %%
@@ -87,7 +89,7 @@ load_mw_history
 
 
 # %%
-HORIZONS = (1, 12, 24)
+HORIZONS = tuple(range(1, 25))
 
 
 def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):
@@ -247,6 +249,7 @@ def fetch_city_weather(city):
 def add_weather(
     target_time,
     city_names="all",
+    city_weather_fetcher=fetch_city_weather,
 ):
     """Add weather information for the required cities."""
     # NOTE: here ideally we should retrieve the exact weather forecast
@@ -258,7 +261,7 @@ def add_weather(
     with_weather = target_time.lazy()
     for city in city_names:
         with_weather = with_weather.join(
-            fetch_city_weather(city)
+            city_weather_fetcher(city)
             .with_columns(pl.col("time").dt.cast_time_unit("us"))
             .select((pl.col("time"), cs.matches(".*temperature.*")))
             .select(
@@ -275,7 +278,12 @@ def add_weather(
     return with_weather.collect()
 
 
-feat_12h_with_weather = feat_12h.skb.apply_func(add_weather)
+city_weather_fetcher = skrub.as_data_op(fetch_city_weather).skb.set_name(
+    "city_weather_fetcher"
+)
+feat_12h_with_weather = feat_12h.skb.apply_func(
+    add_weather, city_weather_fetcher=city_weather_fetcher
+)
 feat_12h_with_weather
 
 # %%
@@ -350,30 +358,25 @@ pred_12h
 pred_12h.skb.with_scoring("neg_mean_absolute_percentage_error").skb.cross_validate()
 
 # %%
-y = X_y["y"].skb.mark_as_y()
-
-all_pred = {}
-for h in HORIZONS:
-    all_pred[h] = apply_predictor(X, y[f"{h}h"], h)
+from sklearn.metrics import mean_absolute_percentage_error
 
 
-def concat_horizons(all_pred):
+def concat_horizons(predictions):
     """
     Consolidate predictions of models for different horizons in one dataframe.
     """
-    return pl.DataFrame({f"{h}h": v for h, v in all_pred.items()})
+    return pl.DataFrame({f"{h}h": v for h, v in predictions.items()})
 
 
-multi_horizon_pred = (
-    skrub.as_data_op(all_pred)
-    .skb.apply_func(concat_horizons)
-    .skb.set_name("pred_multi_horizon")
-    .skb.with_scoring("neg_mean_absolute_percentage_error")
-)
-multi_horizon_pred
+def make_multi_horizon_pred(horizons):
+    y = X_y["y"].select([f"{h}h" for h in horizons]).skb.mark_as_y()
+    predictions = {h: apply_predictor(X, y[f"{h}h"], h) for h in horizons}
+    return skrub.deferred(concat_horizons)(predictions).skb.set_name(
+        "pred_multi_horizon"
+    )
 
-# %%
-multi_horizon_pred.skb.cross_validate()
+
+multi_horizon_pred = make_multi_horizon_pred((1, 12, 24))
 
 # %%
 split = multi_horizon_pred.skb.train_test_split()
@@ -383,11 +386,27 @@ first_split_prediction = learner.predict(split["test"])
 first_split_prediction
 
 # %%
-from sklearn.metrics import mean_absolute_percentage_error
 
 mean_absolute_percentage_error(
     split["y_test"], first_split_prediction, multioutput="raw_values"
 )
+
+
+# %%
+def mape(y_true, y_pred):
+    average = mean_absolute_percentage_error(y_true, y_pred)
+    detail = mean_absolute_percentage_error(y_true, y_pred, multioutput="raw_values")
+    return {"mape_average": average} | {
+        f"mape_{c}": s for c, s in zip(y_true.columns, detail)
+    }
+
+
+def mape_scorer(estimator, X, y):
+    return mape(y, estimator.predict(X))
+
+
+multi_horizon_pred = make_multi_horizon_pred((1, 12, 24)).skb.with_scoring(mape_scorer)
+multi_horizon_pred.skb.cross_validate()
 
 
 # %%
@@ -404,14 +423,13 @@ def concat_X_y_predictions(X_test, y_test, prediction):
 
 concat_X_y_predictions(split["X_test"], split["y_test"], first_split_prediction)
 
+
 # %%
-
-
 def cross_val_predict(data_op, environment=None):
     """
     Get cross-validated predictions for different horizons.
     """
-    all_predictions, all_scores = [], {"mape": []}
+    all_predictions, all_scores = [], []
     for i, split in enumerate(data_op.skb.iter_cv_splits(environment=environment)):
         learner = data_op.skb.make_learner()
         learner.fit(split["train"])
@@ -421,21 +439,20 @@ def cross_val_predict(data_op, environment=None):
                 split["X_test"], split["y_test"], prediction
             ).with_columns(split=pl.lit(i)),
         )
-        mape = mean_absolute_percentage_error(
-            split["y_test"], prediction, multioutput="raw_values"
-        )
+        split_mape = mape(split["y_test"], prediction)
         print(
             split["X_test"]["prediction_time"].min().strftime("%Y-%m-%d")
             + ": "
-            + " ".join([f"{h}: {m:.1%}" for h, m in zip(prediction.columns, mape)])
+            + " ".join([f"{h}: {m:.1%}" for h, m in split_mape.items()])
         )
-        all_scores["mape"].append(mape.tolist())
+        all_scores.append(split_mape | {"split": i})
 
     all_predictions = pl.concat(all_predictions, how="vertical")
+    all_scores = pl.DataFrame(all_scores)
     return all_predictions, all_scores
 
 
-cv_predictions, scores = cross_val_predict(multi_horizon_pred)
+cv_predictions, cv_scores = cross_val_predict(multi_horizon_pred)
 
 # %%
 import re
@@ -477,3 +494,7 @@ def plot_predictions(results, horizons=None):
 
 
 plot_predictions(cv_predictions)
+
+# %%
+multi_horizon_pred = make_multi_horizon_pred(HORIZONS)
+multi_horizon_pred.skb.cross_validate()
