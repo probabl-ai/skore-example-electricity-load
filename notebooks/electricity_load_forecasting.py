@@ -89,7 +89,6 @@ load_mw_history
 
 
 # %%
-HORIZONS = tuple(range(1, 25))
 
 
 def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):
@@ -107,7 +106,7 @@ def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):
         return {"X": prediction_time}
 
 
-X_y = prediction_time.skb.apply_func(get_X_y, load_mw_history, HORIZONS)
+X_y = prediction_time.skb.apply_func(get_X_y, load_mw_history, (1, 12, 24))
 X_y["X"]
 
 # %%
@@ -369,7 +368,9 @@ def concat_horizons(predictions):
 
 
 def make_multi_horizon_pred(horizons):
-    y = X_y["y"].select([f"{h}h" for h in horizons]).skb.mark_as_y()
+    X_y = prediction_time.skb.apply_func(get_X_y, load_mw_history, horizons)
+    X = X_y["X"].skb.mark_as_X(cv=TimeSeriesSplitter())
+    y = X_y["y"].skb.mark_as_y()
     predictions = {h: apply_predictor(X, y[f"{h}h"], h) for h in horizons}
     return skrub.deferred(concat_horizons)(predictions).skb.set_name(
         "pred_multi_horizon"
@@ -496,5 +497,7 @@ def plot_predictions(results, horizons=None):
 plot_predictions(cv_predictions)
 
 # %%
-multi_horizon_pred = make_multi_horizon_pred(HORIZONS)
+HORIZONS = tuple(range(1, 25))
+
+multi_horizon_pred = make_multi_horizon_pred(HORIZONS).skb.with_scoring(mape_scorer)
 multi_horizon_pred.skb.cross_validate()
