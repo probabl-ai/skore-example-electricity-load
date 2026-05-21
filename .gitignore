@@ -1,5 +1,7 @@
 results/
 graph.svg
+*.ipynb
+notebooks/*.html
 
 *~
 *#
