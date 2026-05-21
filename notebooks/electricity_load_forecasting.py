@@ -92,6 +92,11 @@ load_mw_history
 
 
 def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):
+    if isinstance(horizons, int):
+        single_horizon = True
+        horizons = (horizons,)
+    else:
+        single_horizon = False
     if mode in ("fit", "fit_transform", "preview"):
         load = load_mw_history.select(
             pl.col("time"),
@@ -100,7 +105,7 @@ def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):
         X_y = prediction_time.join(load, on="time", how="inner", maintain_order="left")
         return {
             "X": X_y.select(pl.col("time").alias("prediction_time")),
-            "y": X_y.drop("time"),
+            "y": X_y[f"{horizons[0]}h"] if single_horizon else X_y.drop("time"),
         }
     else:
         return {"X": prediction_time}
@@ -110,6 +115,11 @@ X_y = prediction_time.skb.apply_func(get_X_y, load_mw_history, (1, 12, 24))
 X_y["X"]
 
 # %%
+X_y["y"]
+
+# %%
+EXAMPLE_HORIZON = 12
+X_y = prediction_time.skb.apply_func(get_X_y, load_mw_history, EXAMPLE_HORIZON)
 X_y["y"]
 
 # %%
@@ -170,6 +180,7 @@ next(iter(TimeSeriesSplitter().split(X_val)))
 
 # %%
 X = X_y["X"].skb.mark_as_X(cv=TimeSeriesSplitter())
+y = X_y["y"].skb.mark_as_y()
 
 
 # %%
@@ -219,10 +230,10 @@ def add_lagged_features(target_time, load_mw_history, horizon):
     )
 
 
-feat_12h = X.skb.apply_func(add_target_time, 12).skb.apply_func(
-    add_lagged_features, load_mw_history, 12
+with_lags = X.skb.apply_func(add_target_time, EXAMPLE_HORIZON).skb.apply_func(
+    add_lagged_features, load_mw_history, EXAMPLE_HORIZON
 )
-feat_12h
+with_lags
 
 # %%
 from polars import selectors as cs
@@ -280,10 +291,10 @@ def add_weather(
 city_weather_fetcher = skrub.as_data_op(fetch_city_weather).skb.set_name(
     "city_weather_fetcher"
 )
-feat_12h_with_weather = feat_12h.skb.apply_func(
+with_weather = with_lags.skb.apply_func(
     add_weather, city_weather_fetcher=city_weather_fetcher
 )
-feat_12h_with_weather
+with_weather
 
 # %%
 import holidays
@@ -306,10 +317,8 @@ def add_calendar_and_holidays(target_time):
     )
 
 
-feat_12h_with_calendar = feat_12h_with_weather.skb.apply_func(
-    add_calendar_and_holidays
-)
-feat_12h_with_calendar
+with_calendar = with_weather.skb.apply_func(add_calendar_and_holidays)
+with_calendar
 
 
 # %%
@@ -350,11 +359,11 @@ def apply_predictor(X, y, horizon):
     )
 
 
-pred_12h = apply_predictor(X, X_y["y"]["12h"].skb.mark_as_y(), 12)
-pred_12h
+pred = apply_predictor(X, y, EXAMPLE_HORIZON)
+pred
 
 # %%
-pred_12h.skb.with_scoring("neg_mean_absolute_percentage_error").skb.cross_validate()
+pred.skb.with_scoring("neg_mean_absolute_percentage_error").skb.cross_validate()
 
 # %%
 from sklearn.metrics import mean_absolute_percentage_error
@@ -377,17 +386,17 @@ def make_multi_horizon_pred(horizons):
     )
 
 
-multi_horizon_pred = make_multi_horizon_pred((1, 12, 24))
+pred = make_multi_horizon_pred((1, 12, 24))
+pred
 
 # %%
-split = multi_horizon_pred.skb.train_test_split()
-learner = multi_horizon_pred.skb.make_learner()
+split = pred.skb.train_test_split()
+learner = pred.skb.make_learner()
 learner.fit(split["train"])
 first_split_prediction = learner.predict(split["test"])
 first_split_prediction
 
 # %%
-
 mean_absolute_percentage_error(
     split["y_test"], first_split_prediction, multioutput="raw_values"
 )
@@ -406,8 +415,11 @@ def mape_scorer(estimator, X, y):
     return mape(y, estimator.predict(X))
 
 
-multi_horizon_pred = make_multi_horizon_pred((1, 12, 24)).skb.with_scoring(mape_scorer)
-multi_horizon_pred.skb.cross_validate()
+pred = make_multi_horizon_pred((1, 12, 24)).skb.with_scoring(mape_scorer)
+pred
+
+# %%
+pred.skb.cross_validate()
 
 
 # %%
@@ -453,7 +465,7 @@ def cross_val_predict(data_op, environment=None):
     return all_predictions, all_scores
 
 
-cv_predictions, cv_scores = cross_val_predict(multi_horizon_pred)
+cv_predictions, cv_scores = cross_val_predict(pred)
 
 # %%
 import re
@@ -499,5 +511,5 @@ plot_predictions(cv_predictions)
 # %%
 HORIZONS = tuple(range(1, 25))
 
-multi_horizon_pred = make_multi_horizon_pred(HORIZONS).skb.with_scoring(mape_scorer)
-multi_horizon_pred.skb.cross_validate()
+pred_24_horizons = make_multi_horizon_pred(HORIZONS).skb.with_scoring(mape_scorer)
+pred_24_horizons.skb.cross_validate()
