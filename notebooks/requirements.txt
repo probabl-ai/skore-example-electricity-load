@@ -1,0 +1,12 @@
+holidays
+matplotlib
+optuna
+optuna-dashboard
+pandas
+plotly
+polars
+pyarrow
+pydot
+scikit-learn
+skore
+skrub>=0.9.0
