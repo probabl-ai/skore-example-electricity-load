@@ -3,6 +3,7 @@ graph.svg
 notebooks/*.html
 *.pickle
 *.ipynb
+*.sqlite
 
 *~
 *#

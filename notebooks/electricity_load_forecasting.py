@@ -733,8 +733,8 @@ mean_absolute_percentage_error(
 def mape(y_true, y_pred):
     average = mean_absolute_percentage_error(y_true, y_pred)
     detail = mean_absolute_percentage_error(y_true, y_pred, multioutput="raw_values")
-    return {"mape_average": average} | {
-        f"mape_{c}": float(s) for c, s in zip(y_true.columns, detail)
+    return {"mape_average": -average} | {
+        f"mape_{c}": -float(s) for c, s in zip(y_true.columns, detail)
     }
 
 
