@@ -2,6 +2,7 @@ results/
 graph.svg
 notebooks/*.html
 *.pickle
+*.ipynb
 
 *~
 *#
