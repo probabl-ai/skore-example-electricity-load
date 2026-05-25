@@ -1,9 +1,10 @@
 results/
 graph.svg
 notebooks/*.html
-*.pickle
-*.ipynb
-*.sqlite
+notebooks/*.pickle
+notebooks/*.ipynb
+notebooks/*.sqlite
+notebooks/*.csv
 
 *~
 *#

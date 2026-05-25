@@ -28,6 +28,12 @@ def data_dir():
     return Path(".").resolve().parent / "datasets"
 
 
+def results_dir():
+    out = Path(".").resolve() / "results"
+    out.mkdir(exist_ok=True)
+    return out
+
+
 def fetch_load_mw_history():
     """
     Fetch the historical electricity grid load in MW from the default data dir.
@@ -35,9 +41,7 @@ def fetch_load_mw_history():
     Returns a dataframe with columns [time, load_mw].
     """
     return (
-        pl.read_csv(
-            data_dir() / "Total Load - Day Ahead*.csv", null_values=["N/A", "-"]
-        )
+        pl.read_csv(data_dir() / "Total Load - Day Ahead*.csv", null_values=["N/A", "-"])
         .drop_nulls()
         .select(
             pl.col("Time (UTC)")
@@ -79,10 +83,16 @@ raw_load_mw_history
 import datetime
 
 
-def time_range(start, end):
+def time_range(start, end=None):
     """
     Build a 1-hour-spaced datetime range from start to end.
+
+    Times are truncated to the nearest full hour.
+
+    If end is None, we get a time range containing only the start time.
     """
+    if end is None:
+        end = start
     if isinstance(start, str):
         start = datetime.datetime.fromisoformat(start)
     if isinstance(end, str):
@@ -93,7 +103,9 @@ def time_range(start, end):
             end=end,
             time_zone="UTC",
             interval="1h",
-        ).alias("time"),
+        )
+        .dt.truncate("1h")
+        .alias("time"),
     )
 
 
@@ -107,6 +119,11 @@ prediction_time
 # The historical data is sampled irregularly, sometimes every hour, sometimes
 # every 15 min, and with missing rows. We define a function to resample it on a
 # regular 1h-spaced grid.
+#
+# As this will serve as the basis for our lagged features, we add a buffer of
+# empty rows beyond the range of our data. We do not have the actual load for
+# those rows, but lagged loads can be defined for them and joined onto the
+# feature set we are building.
 
 
 # %%
@@ -185,9 +202,7 @@ def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):
         return {
             "X": X_y.select(pl.col("prediction_time")),
             "y": (
-                X_y[f"{horizons[0]}h"]
-                if single_horizon
-                else X_y.drop("prediction_time")
+                X_y[f"{horizons[0]}h"] if single_horizon else X_y.drop("prediction_time")
             ),
         }
     else:
@@ -282,9 +297,7 @@ class TimeSeriesSplitter:
             eager=True,
         )
         for test_start in test_start_dates:
-            train, test = _split_indices(
-                X, test_start, test_length_days=test_length_days
-            )
+            train, test = _split_indices(X, test_start, test_length_days=test_length_days)
             if len(train) and len(test):
                 yield train, test
 
@@ -469,9 +482,7 @@ def add_weather(
             )
             .select(
                 pl.col("time"),
-                (~cs.by_name("time"))
-                .as_expr()
-                .name.map(f"weather_{{}}_{city}".format),
+                (~cs.by_name("time")).as_expr().name.map(f"weather_{{}}_{city}".format),
             ),
             left_on="target_time",
             right_on="time",
@@ -562,9 +573,7 @@ regressor = HistGradientBoostingRegressor(
     learning_rate=skrub.choose_float(
         0.01, 0.7, default=0.1, log=True, name="learning_rate"
     ),
-    max_leaf_nodes=skrub.choose_int(
-        3, 300, default=30, log=True, name="max_leaf_nodes"
-    ),
+    max_leaf_nodes=skrub.choose_int(3, 300, default=30, log=True, name="max_leaf_nodes"),
 )
 
 
@@ -684,9 +693,7 @@ def make_multi_horizon_pred(horizons):
     X = X_y["X"].skb.mark_as_X(cv=TimeSeriesSplitter())
     y = X_y["y"].skb.mark_as_y()
     predictions = {h: apply_predictor(X, y[f"{h}h"], h) for h in horizons}
-    return skrub.deferred(concat_horizons)(predictions).skb.set_name(
-        "pred_multi_horizon"
-    )
+    return skrub.deferred(concat_horizons)(predictions).skb.set_name("pred_multi_horizon")
 
 
 # We inspect the pipeline on an example with only 3 horizons so that it is fast
@@ -725,25 +732,25 @@ mean_absolute_percentage_error(
 # Once we have defined this function of true and predicted electricity loads,
 # (what scikit-learn calls a 'metric'), we wrap it in a 'scorer', a function
 # that takes an estimator, X and y. Scorers can return a single score, or a
-# dictionary mapping metric names (in our case 'mape_1h', 'mape_2h', ...) to
+# dictionary mapping metric names (in our case 'neg_mape_1h', 'neg_mape_2h', ...) to
 # scores.
 
 
 # %%
-def mape(y_true, y_pred):
+def neg_mape(y_true, y_pred):
     average = mean_absolute_percentage_error(y_true, y_pred)
     detail = mean_absolute_percentage_error(y_true, y_pred, multioutput="raw_values")
-    return {"mape_average": -average} | {
-        f"mape_{c}": -float(s) for c, s in zip(y_true.columns, detail)
+    return {"neg_mape_average": -average} | {
+        f"neg_mape_{c}": -float(s) for c, s in zip(y_true.columns, detail)
     }
 
 
-def mape_scorer(estimator, X, y):
-    return mape(y, estimator.predict(X))
+def neg_mape_scorer(estimator, X, y):
+    return neg_mape(y, estimator.predict(X))
 
 
 # We set this as the default scorer on our pipeline.
-pred = make_multi_horizon_pred((1, 12, 24)).skb.with_scoring(mape_scorer)
+pred = make_multi_horizon_pred((1, 12, 24)).skb.with_scoring(neg_mape_scorer)
 pred
 
 # %%
@@ -763,13 +770,8 @@ print(pred.skb.describe_param_grid())
 pred.skb.make_learner().fit(split["train"]).score(split["test"])
 
 # %% [markdown]
-# Finally we compute the full cross-validation.
-
-# %%
-pred.skb.cross_validate()
-
-# %% [markdown]
-# Also, it is always good that our pipeline can make a prediction on some truly
+# **Out-of-sample check:**
+# it is always good that our pipeline can make a prediction on some truly
 # left-out data, as a sanity check which could find bugs in the way we set it
 # up or did the cross-validation.
 
@@ -787,8 +789,22 @@ new_date
 # %%
 # fit on all available data
 learner = pred.skb.make_learner(fitted=True)
-future_pred = learner.predict({"start": new_date, "end": new_date})
+future_pred = learner.predict({"start": new_date, "end": None})
 future_pred
+
+# %% [markdown]
+# Note that the new_date is 15 minutes past our last data point, not exactly on
+# that point, so some lags will already be missing. Also we do not have weather
+# data for that date.
+#
+# This can be easily inspected by creating a report for the prediction:
+#
+# ```
+# learner.report(environment={'start': new_date, 'end': None}, mode='predict')
+# ```
+#
+# Luckily the HistGradientBoostingRegressor is able to deal with missing values
+# and produces a reasonable prediction.
 
 
 # %%
@@ -812,6 +828,42 @@ fig = go.Figure()
 fig.add_trace(plot_line(history_tail["time"], history_tail["load_mw"]))
 fig.add_trace(plot_line(future_pred_tall["time"], future_pred_tall["load_mw"]))
 fig.update_layout(height=700)
+
+# %% [markdown]
+# It seems getting the predictions in long rather than wide format indexed by
+# date for a single prediction date might be a frequent need. We can add a
+# little post-processor to the pipeline to optionally do that.
+
+
+# %%
+def post_process(pred):
+    if range_end is not None:
+        return pred
+    return transpose_pred(prediction_time["time"].to_list()[0], pred)
+
+
+pred = (
+    make_multi_horizon_pred((1, 12, 24))
+    .skb.apply_func(post_process)
+    .skb.with_scoring(neg_mape_scorer)
+)
+
+# %%
+learner = pred.skb.make_learner().fit(split["train"])
+
+# %%
+# by default we get the same format as before
+learner.predict(split["test"])
+
+# %%
+# but if we pass end=None (predict only 1 date, start), we get the more convenient format
+learner.predict({"start": new_date, "end": None})
+
+# %% [markdown]
+# Finally we compute the full cross-validation.
+
+# %%
+pred.skb.cross_validate()
 
 
 # %% [markdown]
@@ -842,21 +894,19 @@ def cross_val_predict(data_op, environment=None):
     """
     all_predictions, all_scores = [], []
     for i, split in enumerate(data_op.skb.iter_cv_splits(environment=environment)):
-        prediction = (
-            data_op.skb.make_learner().fit(split["train"]).predict(split["test"])
-        )
+        prediction = data_op.skb.make_learner().fit(split["train"]).predict(split["test"])
         all_predictions.append(
             concat_X_y_predictions(
                 split["X_test"], split["y_test"], prediction
             ).with_columns(split=pl.lit(i)),
         )
-        split_mape = mape(split["y_test"], prediction)
+        split_neg_mape = neg_mape(split["y_test"], prediction)
         split_start = split["X_test"]["prediction_time"].min()
         fmt_mape = " ".join(
-            f"{k.removeprefix('mape_')}: {v:.1%}" for k, v in split_mape.items()
+            f"{k.removeprefix('neg_mape_')}: {-v:.1%}" for k, v in split_neg_mape.items()
         )
         print(f"{split_start:%Y-%m-%d}: {fmt_mape}")
-        all_scores.append(split_mape | {"split": i})
+        all_scores.append(split_neg_mape | {"split": i})
     all_predictions = pl.concat(all_predictions, how="vertical")
     all_scores = pl.DataFrame(all_scores)
     return all_predictions, all_scores
@@ -906,7 +956,7 @@ plot_predictions(cv_predictions)
 # %%
 import pickle
 
-with open("learner_3_horizons.pickle", "wb") as f:
+with open(results_dir() / "learner_3_horizons.pickle", "wb") as f:
     pickle.dump(pred.skb.make_learner(), f)
 
 # %% [markdown]
@@ -915,17 +965,20 @@ with open("learner_3_horizons.pickle", "wb") as f:
 # %%
 HORIZONS = tuple(range(1, 25))
 
-pred_24_horizons = make_multi_horizon_pred(HORIZONS).skb.with_scoring(mape_scorer)
-cv_scores = pred_24_horizons.skb.cross_validate(verbose=1)
+pred_24_horizons = (
+    make_multi_horizon_pred(HORIZONS)
+    .skb.apply_func(post_process)
+    .skb.with_scoring(neg_mape_scorer)
+)
+cv_scores = pred_24_horizons.skb.cross_validate(verbose=2)
 cv_scores
 
 # %%
 learner = pred_24_horizons.skb.make_learner(fitted=True)
-future_pred = learner.predict({"start": new_date, "end": new_date})
-future_pred_tall = transpose_pred(new_date, future_pred)
+future_pred = learner.predict({"start": new_date, "end": None})
 fig = go.Figure()
 fig.add_trace(plot_line(history_tail["time"], history_tail["load_mw"]))
-fig.add_trace(plot_line(future_pred_tall["time"], future_pred_tall["load_mw"]))
+fig.add_trace(plot_line(future_pred["time"], future_pred["load_mw"]))
 fig.update_layout(height=700)
 
 
@@ -935,11 +988,13 @@ fig.update_layout(height=700)
 # %%
 from matplotlib import pyplot as plt
 
-cv_scores.filter(regex="test_mape_.*h").boxplot()
+(cv_scores.filter(regex="test_neg_mape_.*h") * -1).rename(
+    columns=lambda c: c.removeprefix("test_neg_mape_")
+).boxplot()
 plt.xticks(rotation=45)
 plt.xlabel("Horizon")
 plt.ylabel("MAPE")
 
 # %%
-with open("learner_24_horizons.pickle", "wb") as f:
+with open(results_dir() / "learner_24_horizons.pickle", "wb") as f:
     pickle.dump(pred_24_horizons.skb.make_learner(), f)

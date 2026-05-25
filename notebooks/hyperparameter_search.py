@@ -5,10 +5,13 @@
 # hyperparameters with optuna.
 
 # %%
+from pathlib import Path
 import pickle
 
+results_dir = Path(".") / "results"
+
 # we can use 24 horizons instead
-with open("learner_3_horizons.pickle", "rb") as f:
+with open(results_dir / "learner_3_horizons.pickle", "rb") as f:
     pred = pickle.load(f).data_op
 
 
@@ -29,7 +32,7 @@ outer_split["X_test"]
 # it after the current process exits.
 
 # %%
-storage = f"sqlite:///optuna.sqlite"
+storage = f"sqlite:///{results_dir / 'optuna.sqlite'}"
 print(f"Check search progress with:\noptuna-dashboard {storage}")
 study_name = f"randomized_search"
 
@@ -37,17 +40,24 @@ search = pred.skb.make_randomized_search(
     backend="optuna",
     n_iter=64,
     n_jobs=1,
-    refit="mape_average",
+    refit="neg_mape_average",
     storage=storage,
     study_name=study_name,
 )
 
 search.fit(outer_split["train"])
-with open("randomized_search.pickle", "wb") as f:
+with open(results_dir / "randomized_search.pickle", "wb") as f:
     pickle.dump(search, f)
+
+with open(results_dir / "best_learner.pickle", "wb") as f:
+    pickle.dump(search.best_learner_, f)
 
 search.results_.to_csv("search_results.csv", index=False)
 search.score(outer_split["test"])
 
 # %%
-search.plot_results().show(renderer="browser")
+search.plot_results()
+
+# %%
+# make an example prediction
+search.predict({"start": "2025-06-27T15:00:00", "end": None})
