@@ -565,16 +565,43 @@ def add_features(df, horizon, load_mw_history, cities, temperature_only):
 # ### Supervised predictor
 
 # %%
+import numpy as np
 from sklearn.ensemble import HistGradientBoostingRegressor
+
+loss = skrub.choose_from(["squared_error", "poisson", "gamma"], name="loss")
 
 regressor = HistGradientBoostingRegressor(
     random_state=0,
-    loss=skrub.choose_from(["squared_error", "poisson", "gamma"], name="loss"),
+    loss=loss,
     learning_rate=skrub.choose_float(
         0.01, 0.7, default=0.1, log=True, name="learning_rate"
     ),
     max_leaf_nodes=skrub.choose_int(3, 300, default=30, log=True, name="max_leaf_nodes"),
 )
+
+# If the log is squared_error, we want to try with and without log-transforming the targets.
+# Otherwise no log-transform.
+
+use_log_transform = loss.match(
+    {"squared_error": skrub.choose_bool(name="use_log_transform", default=True)},
+    default=False,
+)
+
+
+def log_transform_maybe(y_true, use_log_transform):
+    return y_true.log() if use_log_transform else y_true
+
+
+def exp_transform_maybe(estimator_output, use_log_transform):
+    if not use_log_transform:
+        return estimator_output
+    if isinstance(estimator_output, np.ndarray):
+        return np.exp(estimator_output)
+    if isinstance(estimator_output, pl.Series):
+        return estimator_output.exp()
+    # in 'fit' mode, the output of the final estimator will be the fitted
+    # estimator itself.
+    return estimator_output
 
 
 def apply_predictor(X, y, horizon):
@@ -588,7 +615,8 @@ def apply_predictor(X, y, horizon):
         )
         .skb.set_name(f"feat_{horizon}h")
         .skb.drop(["prediction_time", "target_time"])
-        .skb.apply(regressor, y=y)
+        .skb.apply(regressor, y=y.skb.apply_func(log_transform_maybe, use_log_transform))
+        .skb.apply_func(exp_transform_maybe, use_log_transform)
         .skb.set_name(f"pred_{horizon}h")
     )
 
