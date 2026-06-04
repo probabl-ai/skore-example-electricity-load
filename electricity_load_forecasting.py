@@ -13,7 +13,7 @@ from sklearn.metrics import mean_absolute_percentage_error, d2_pinball_score
 from sklearn.ensemble import HistGradientBoostingRegressor
 import plotly.graph_objects as go
 
-from quantile_regressor import BinnedQuantileRegressor
+from quantile_regressor import BinnedQuantileRegressor, HGBQuantileRegressor
 
 _ALL_CITIES = (
     "paris",
@@ -308,10 +308,6 @@ def concat_horizons(all_pred, quantile_regression=False, mode=skrub.eval_mode())
     )
 
 
-def concat_quantiles(quantile_predictions):
-    return pl.DataFrame({f"q_{q}": v for q, v in quantile_predictions.items()})
-
-
 def _split_indices(X, test_start_date, test_length_days):
     train = (
         X.with_row_index()
@@ -514,28 +510,36 @@ def make_data_op(
     temperature_only = skrub.choose_bool(name="temperature_only", default=False)
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
 
-    q_regressor = BinnedQuantileRegressor()
     quantiles_to_predict = skrub.as_data_op(quantiles).skb.set_name("quantiles")
     quantile_regression = quantile_strategy is not None
     learning_rate = skrub.choose_float(
         0.01, 0.7, default=0.1, log=True, name="learning_rate"
     )
     max_leaf_nodes = skrub.choose_int(3, 300, default=30, log=True, name="max_leaf_nodes")
+    hgb_params = dict(
+        random_state=0,
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
+    )
     hgb_regressor = HistGradientBoostingRegressor(
-        random_state=0,
         loss=skrub.choose_from(["squared_error", "poisson", "gamma"], name="loss"),
-        learning_rate=learning_rate,
-        max_leaf_nodes=max_leaf_nodes,
+        **hgb_params,
     )
-    hgb_q_regressor_params = dict(
-        random_state=0,
-        loss="quantile",
-        learning_rate=learning_rate,
-        max_leaf_nodes=max_leaf_nodes,
-    )
+    hgb_q_regressor = HGBQuantileRegressor(quantiles=quantiles, hgb_params=hgb_params)
+    binned_q_regressor = BinnedQuantileRegressor()
+    predict_kwargs = None
+    if quantile_strategy == "binning":
+        predictor = binned_q_regressor
+        predict_kwargs = {"quantiles": quantiles_to_predict}
+    elif quantile_strategy == "multiple_regressors":
+        predictor = hgb_q_regressor
+    elif quantile_strategy is None:
+        predictor = hgb_regressor
+    else:
+        raise ValueError(f"Bad quantile strategy: {quantile_strategy!r}")
     all_pred = {}
     for h in horizons:
-        feat = (
+        all_pred[h] = (
             X.skb.apply_func(
                 add_features,
                 horizon=h,
@@ -551,30 +555,12 @@ def make_data_op(
             )
             .skb.drop(["prediction_time", "target_time"])
             .skb.apply(skrub.ToFloat())
-        )
-        y_horizon = y[f"{h}h"]
-        if quantile_strategy == "binning":
-            raw_pred = feat.skb.apply(
-                q_regressor,
-                y=y_horizon,
-                predict_kwargs={"quantiles": quantiles_to_predict},
+            .skb.apply(predictor, y=y[f"{h}h"], predict_kwargs=predict_kwargs)
+            .skb.set_name(f"pred_{h}h")
+            .skb.set_description(
+                f"Predicted load {h} hours after the 'prediction_time' in X."
             )
-        elif quantile_strategy == "multiple_regressors":
-            quantile_predictions = {}
-            for q in quantiles:
-                quantile_predictions[q] = feat.skb.apply(
-                    HistGradientBoostingRegressor(quantile=q, **hgb_q_regressor_params),
-                    y=y_horizon,
-                ).skb.set_name(f"pred_{h}h__q_{q}")
-            raw_pred = skrub.deferred(concat_quantiles)(quantile_predictions)
-        elif quantile_strategy is None:
-            raw_pred = feat.skb.apply(hgb_regressor, y=y_horizon)
-        else:
-            raise ValueError(f"Bad quantile strategy: {quantile_strategy!r}")
-        pred = raw_pred.skb.set_name(f"pred_{h}h").skb.set_description(
-            f"Predicted load {h} hours after the 'prediction_time' in X."
         )
-        all_pred[h] = pred
 
     multi_horizon_pred = (
         skrub.deferred(concat_horizons)(all_pred, quantile_regression=quantile_regression)

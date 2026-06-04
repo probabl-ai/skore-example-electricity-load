@@ -2,15 +2,33 @@
 copied from:
 https://github.com/probabl-ai/forecasting/blob/main/content/python_files/prediction_intervals.py
 """
+
 from scipy.interpolate import interp1d
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.utils.validation import check_is_fitted
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingRegressor
 from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.utils.validation import check_consistent_length
 from sklearn.utils import check_random_state
 import numpy as np
 import polars as pl
+
+
+class HGBQuantileRegressor(RegressorMixin, BaseEstimator):
+    def __init__(self, quantiles=(0.05, 0.5, 0.95), hgb_params=None):
+        self.quantiles = quantiles
+        self.hgb_params = hgb_params
+
+    def fit(self, X, y):
+        params = (self.hgb_params or {}) | {"loss": "quantile"}
+        self.estimators_ = {
+            q: HistGradientBoostingRegressor(quantile=q, **params).fit(X, y)
+            for q in self.quantiles
+        }
+        return self
+
+    def predict(self, X):
+        return pl.DataFrame({f"q_{q}": e.predict(X) for q, e in self.estimators_.items()})
 
 
 class BinnedQuantileRegressor(BaseEstimator, RegressorMixin):
