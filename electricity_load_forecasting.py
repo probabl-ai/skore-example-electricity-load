@@ -72,9 +72,7 @@ def fetch_load_mw_history():
     Returns a dataframe with columns [time, load_mw].
     """
     return (
-        pl.scan_csv(
-            data_dir() / "Total Load - Day Ahead*.csv", null_values=["N/A", "-"]
-        )
+        pl.scan_csv(data_dir() / "Total Load - Day Ahead*.csv", null_values=["N/A", "-"])
         .drop_nulls()
         .select(
             pl.col("Time (UTC)")
@@ -88,10 +86,16 @@ def fetch_load_mw_history():
     )
 
 
-def time_range(start, end):
+def time_range(start, end=None):
     """
     Build a 1-hour-spaced datetime range from start to end.
+
+    Times are truncated to the nearest full hour.
+
+    If end is None, we get a time range containing only the start time.
     """
+    if end is None:
+        end = start
     if isinstance(start, str):
         start = datetime.datetime.fromisoformat(start)
     if isinstance(end, str):
@@ -102,7 +106,9 @@ def time_range(start, end):
             end=end,
             time_zone="UTC",
             interval="1h",
-        ).alias("time"),
+        )
+        .dt.truncate("1h")
+        .alias("time"),
     )
 
 
@@ -118,51 +124,53 @@ def resample(load_mw_history):
         pl.col("load_mw").mean()
     )
     all_times = averaged["time"]
-    return time_range(all_times.min(), all_times.max()).join(
-        averaged, on="time", how="left", maintain_order="left"
-    )
+    return time_range(
+        all_times.min(), all_times.max() + datetime.timedelta(hours=48)
+    ).join(averaged, on="time", how="left", maintain_order="left")
 
 
-class GetXy(BaseEstimator):
+def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):
     """
-    Get query (prediction time grid) and actual loads (at different horizons) to predict.
+    Compute input and target variables.
 
-    During training and for cross-validation, rows for which some data is
-    missing (we have no actual load for one of the horizons) are dropped.
-    During inference no rows are dropped (there is no ground truth anyway).
+    For fitting (and validation), this builds the targets y by applying
+    appropriate shifts to the historical data. The targets y and prediction
+    times X are aligned, and rows with missing ground truth are dropped.
+    Returns a dictionary with keys X and y, ready to be split for
+    cross-validation or used to fit a model.
 
-    data must be a dict with keys 'load_mw_history', 'prediction_time', 'horizons'.
-    Returns a dictionary with keys 'X' and 'y'.
-
-    y is constructed by shifting the historical load back, ie aligning future
-    load with the current date (during inference y will be None).
+    For prediction, simply returns `prediction_time` in a dictionary with a
+    single key X.
     """
-
-    def fit_transform(self, data, y=None):
-        load = (
-            data["load_mw_history"]
-            .select(
-                pl.col("time"),
-                *[
-                    pl.col("load_mw").shift(-h).alias(f"{h}h")
-                    for h in data["horizons"]
-                ],
-            )
-            .drop_nulls()
-        )
-        X_y = data["prediction_time"].join(
-            load, on="time", how="inner", maintain_order="left"
+    if isinstance(horizons, int):
+        single_horizon = True
+        horizons = (horizons,)
+    else:
+        single_horizon = False
+    prediction_time = prediction_time.rename({"time": "prediction_time"})
+    if mode in ("fit", "fit_transform", "preview"):
+        # For those modes we need the ground truth; restrict to rows for which
+        # there is y
+        load = load_mw_history.select(
+            pl.col("time"),
+            *[pl.col("load_mw").shift(-h).alias(f"{h}h") for h in horizons],
+        ).drop_nulls()
+        X_y = prediction_time.join(
+            load,
+            left_on="prediction_time",
+            right_on="time",
+            how="inner",
+            maintain_order="left",
         )
         return {
-            "X": X_y.select(pl.col("time").alias("prediction_time")),
-            "y": X_y.drop("time"),
+            "X": X_y.select(pl.col("prediction_time")),
+            "y": (
+                X_y[f"{horizons[0]}h"] if single_horizon else X_y.drop("prediction_time")
+            ),
         }
-
-    def transform(self, data):
-        return {"X": data["prediction_time"], "y": None}
-
-    def fit(self, data, y=None):
-        return self
+    else:
+        # In predict mode there is no y and we return unmodified query
+        return {"X": prediction_time}
 
 
 def add_lagged_features(target_time, load_mw_history, horizon):
@@ -211,6 +219,7 @@ def fetch_city_weather(city):
 
 def add_weather(
     target_time,
+    horizon,
     city_names="all",
     temperature_only=False,
     city_weather_fetcher=fetch_city_weather,
@@ -219,6 +228,7 @@ def add_weather(
     # NOTE: here ideally we should retrieve the exact weather forecast
     # corresponding to the horizon. But we do not have it available in the
     # historical data. We just take the only forecast we have.
+    del horizon
     if isinstance(city_names, str):
         assert city_names == "all"
         city_names = _ALL_CITIES
@@ -234,9 +244,7 @@ def add_weather(
             )
             .select(
                 pl.col("time"),
-                (~cs.by_name("time"))
-                .as_expr()
-                .name.map(f"weather_{{}}_{city}".format),
+                (~cs.by_name("time")).as_expr().name.map(f"weather_{{}}_{city}".format),
             ),
             left_on="target_time",
             right_on="time",
@@ -275,6 +283,7 @@ def add_features(
     df = add_target_time(df, horizon=horizon)
     df = add_weather(
         df,
+        horizon=horizon,
         temperature_only=temperature_only,
         city_names=city_names,
         city_weather_fetcher=city_weather_fetcher,
@@ -327,9 +336,7 @@ class TimeSeriesSplitter:
             eager=True,
         )
         for test_start in test_start_dates:
-            train, test = _split_indices(
-                X, test_start, test_length_days=test_length_days
-            )
+            train, test = _split_indices(X, test_start, test_length_days=test_length_days)
             if len(train) and len(test):
                 yield train, test
 
@@ -346,6 +353,39 @@ def train_test_split(X, y, test_start_date="2025-01-01"):
         X, test_start_date=test_start_date, test_length_days=24 * 7
     )
     return X[train], X[test], y[train], y[test]
+
+
+def transpose_pred(prediction_date, prediction):
+    date = [
+        prediction_date + datetime.timedelta(hours=int(c.removesuffix("h")))
+        for c in prediction.columns
+    ]
+    load = prediction.row()
+    return pl.DataFrame({"time": date, "load_mw": load})
+
+
+def post_process(pred, prediction_time, range_end):
+    if range_end is not None:
+        return pred
+    pred_time = prediction_time["time"].to_list()[0]
+    date = [
+        pred_time + datetime.timedelta(hours=int(c.removesuffix("h")))
+        for c in pred.columns
+    ]
+    load = pred.row()
+    return pl.DataFrame({"time": date, "load_mw": load})
+
+
+def neg_mape(y_true, y_pred):
+    average = mean_absolute_percentage_error(y_true, y_pred)
+    detail = mean_absolute_percentage_error(y_true, y_pred, multioutput="raw_values")
+    return {"neg_mape_average": -average} | {
+        f"neg_mape_{c}": -float(s) for c, s in zip(y_true.columns, detail)
+    }
+
+
+def neg_mape_scorer(estimator, X, y):
+    return neg_mape(y, estimator.predict(X))
 
 
 def make_data_op(horizons=(1, 2, 12, 24)):
@@ -377,8 +417,10 @@ def make_data_op(horizons=(1, 2, 12, 24)):
     range_start = skrub.var("start").skb.set_description(
         "The first time at which a prediction is made."
     )
-    range_end = skrub.var("end").skb.set_description(
-        "The last time at which a prediction is made."
+    range_end = (
+        skrub.as_data_op(None)
+        .skb.set_name("end")
+        .skb.set_description("The last time at which a prediction is made.")
     )
     load_mw_history_fetcher = (
         skrub.as_data_op(fetch_load_mw_history)
@@ -402,13 +444,7 @@ def make_data_op(horizons=(1, 2, 12, 24)):
         .skb.apply_func(resample)
         .skb.set_description("Historical load data on a regular 1h time grid.")
     )
-    X_y = skrub.as_data_op(
-        {
-            "prediction_time": prediction_time,
-            "load_mw_history": load_mw_history,
-            "horizons": horizons,
-        }
-    ).skb.apply(GetXy())
+    X_y = prediction_time.skb.apply_func(get_X_y, load_mw_history, horizons)
     X = X_y["X"].skb.mark_as_X(cv=TimeSeriesSplitter())
     y = (
         X_y["y"]
@@ -460,15 +496,15 @@ def make_data_op(horizons=(1, 2, 12, 24)):
         all_pred[h] = pred
 
     multi_horizon_pred = (
-        skrub.as_data_op(all_pred)
-        .skb.apply_func(concat_horizons)
+        skrub.deferred(concat_horizons)(all_pred)
         .skb.set_name("pred_multi_horizon")
         .skb.set_description(
             "Output of the pipeline: predicted loads at multiple horizons. "
             "Column Xh contains the predicted load X hours after "
             "the 'prediction_time' in X."
         )
-        .skb.with_scoring("neg_mean_absolute_percentage_error")
+        .skb.apply_func(post_process, prediction_time, range_end)
+        .skb.with_scoring(neg_mape_scorer)
     )
     return multi_horizon_pred
 
@@ -499,27 +535,23 @@ def cross_val_predict(data_op, environment=None):
     """
     Get cross-validated predictions for different horizons.
     """
-    all_predictions, all_scores = [], {"mape": []}
+    all_predictions, all_scores = [], []
     for i, split in enumerate(data_op.skb.iter_cv_splits(environment=environment)):
-        learner = data_op.skb.make_learner()
-        learner.fit(split["train"])
-        prediction = learner.predict(split["test"])
+        prediction = data_op.skb.make_learner().fit(split["train"]).predict(split["test"])
         all_predictions.append(
             concat_X_y_predictions(
                 split["X_test"], split["y_test"], prediction
             ).with_columns(split=pl.lit(i)),
         )
-        mape = mean_absolute_percentage_error(
-            split["y_test"], prediction, multioutput="raw_values"
+        split_neg_mape = neg_mape(split["y_test"], prediction)
+        split_start = split["X_test"]["prediction_time"].min()
+        fmt_mape = " ".join(
+            f"{k.removeprefix('neg_mape_')}: {-v:.1%}" for k, v in split_neg_mape.items()
         )
-        print(
-            split["X_test"]["prediction_time"].min().strftime("%Y-%m-%d")
-            + ": "
-            + " ".join([f"{h}: {m:.1%}" for h, m in zip(prediction.columns, mape)])
-        )
-        all_scores["mape"].append(mape.tolist())
-
+        print(f"{split_start:%Y-%m-%d}: {fmt_mape}")
+        all_scores.append(split_neg_mape | {"split": i})
     all_predictions = pl.concat(all_predictions, how="vertical")
+    all_scores = pl.DataFrame(all_scores)
     return all_predictions, all_scores
 
 
@@ -568,3 +600,13 @@ def get_report_predictions(report):
             ).with_columns(split=pl.lit(i))
         )
     return pl.concat(all_predictions, how="vertical")
+
+
+def get_new_date():
+    """Get the first hour out of the range of historical data"""
+    return (
+        (fetch_load_mw_history()["time"] - datetime.timedelta(seconds=1)).dt.truncate(
+            "1h"
+        )
+        + datetime.timedelta(hours=1)
+    ).max()

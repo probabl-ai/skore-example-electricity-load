@@ -28,7 +28,7 @@ learner.report(
 # %%
 cv_predictions, scores = elf.cross_val_predict(pred, env)
 cv_predictions.write_parquet(output_dir / "cv_predictions.parquet")
-(output_dir / "scores.json").write_text(json.dumps(scores), "utf-8")
+scores.write_csv(output_dir / "scores.csv")
 
 fig = elf.plot_predictions(cv_predictions)
 fig.write_html(output_dir / "cv_predictions_plot.html")
