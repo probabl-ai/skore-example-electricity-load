@@ -24,7 +24,12 @@ learner.report(
     title="predict",
     output_dir=output_dir / "predict_report",
 )
-print(learner.score(split["test"]))
+learner.report(
+    environment={"start": elf.get_new_date()},
+    mode="predict",
+    title="predict_single_date",
+    output_dir=output_dir / "predict_single_date_report",
+)
 
 # %%
 cv_predictions, scores = elf.cross_val_predict(pred, env)
@@ -57,9 +62,11 @@ index = """
             <li><a href="full_report/index.html">data op report</a></li>
             <li><a href="fit_report/index.html">data op fit report</a></li>
             <li><a href="predict_report/index.html">data op predict report</a></li>
+            <li><a href="predict_single_date_report/index.html">data op predict a single date report</a></li>
             <li><a href="cv_predictions_plot.html">multiple horizon predictions</a></li>
             <li><a href="cv_predictions_1h_plot.html">1-h horizon predictions</a></li>
             <li><a href="cv_predictions_24h_plot.html">24-h horizon predictions</a></li>
+            <li><a href="scores.csv">scores</a></li>
         </ul>
     </body>
 </html>

@@ -627,23 +627,17 @@ def cross_val_predict(data_op, environment=None):
     """
     all_predictions, all_scores = [], []
     for i, split in enumerate(data_op.skb.iter_cv_splits(environment=environment)):
-        prediction = data_op.skb.make_learner().fit(split["train"]).predict(split["test"])
+        learner = data_op.skb.make_learner().fit(split["train"])
+        prediction = learner.predict(split["test"])
         all_predictions.append(
             concat_X_y_predictions(
                 split["X_test"], split["y_test"], prediction
             ).with_columns(split=pl.lit(i)),
         )
-        split_neg_mape = neg_mape(
-            split["y_test"],
-            prediction,
-            quantile_regression=prediction.shape[1] != split["y_test"].shape[1],
-        )
-        split_start = split["X_test"]["prediction_time"].min()
-        fmt_mape = " ".join(
-            f"{k.removeprefix('neg_mape__')}: {-v:.1%}" for k, v in split_neg_mape.items()
-        )
-        print(f"{split_start:%Y-%m-%d}: {fmt_mape}")
-        all_scores.append(split_neg_mape | {"split": i})
+        score = learner.score(split["test"])
+        print(split["X_test"]["prediction_time"].min().isoformat())
+        print(score)
+        all_scores.append(score | {"split": i})
     all_predictions = pl.concat(all_predictions, how="vertical")
     all_scores = pl.DataFrame(all_scores)
     return all_predictions, all_scores
