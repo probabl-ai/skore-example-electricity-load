@@ -1,3 +1,4 @@
+import functools
 import re
 import datetime
 import json
@@ -8,10 +9,11 @@ import holidays
 import polars as pl
 from polars import selectors as cs
 import skrub
-from sklearn.base import BaseEstimator
-from sklearn.metrics import mean_absolute_percentage_error
+from sklearn.metrics import mean_absolute_percentage_error, d2_pinball_score
 from sklearn.ensemble import HistGradientBoostingRegressor
 import plotly.graph_objects as go
+
+from quantile_regressor import BinnedQuantileRegressor
 
 _ALL_CITIES = (
     "paris",
@@ -80,7 +82,7 @@ def fetch_load_mw_history():
             .list.first()
             .str.to_datetime("%d.%m.%Y %H:%M", time_zone="UTC")
             .alias("time"),
-            pl.col("Actual Total Load [MW] - BZN|FR").alias("load_mw"),
+            pl.col("Actual Total Load [MW] - BZN|FR").cast(pl.Float32).alias("load_mw"),
         )
         .collect()
     )
@@ -293,11 +295,21 @@ def add_features(
     return df
 
 
-def concat_horizons(all_pred):
+def concat_horizons(all_pred, quantile_regression=False, mode=skrub.eval_mode()):
     """
     Consolidate predictions of models for different horizons in one dataframe.
     """
-    return pl.DataFrame({f"{h}h": v for h, v in all_pred.items()})
+    if mode == "fit":
+        return all_pred
+    if not quantile_regression:
+        return pl.DataFrame({f"{h}h": v for h, v in all_pred.items()})
+    return pl.concat(
+        [v.rename(f"{h}h__{{}}".format) for h, v in all_pred.items()], how="horizontal"
+    )
+
+
+def concat_quantiles(quantile_predictions):
+    return pl.DataFrame({f"q_{q}": v for q, v in quantile_predictions.items()})
 
 
 def _split_indices(X, test_start_date, test_length_days):
@@ -364,31 +376,74 @@ def transpose_pred(prediction_date, prediction):
     return pl.DataFrame({"time": date, "load_mw": load})
 
 
-def post_process(pred, prediction_time, range_end):
+def post_process(pred, prediction_time, range_end, quantile_regression):
     if range_end is not None:
         return pred
     pred_time = prediction_time["time"].to_list()[0]
-    date = [
-        pred_time + datetime.timedelta(hours=int(c.removesuffix("h")))
-        for c in pred.columns
-    ]
+    horizons, q = zip(
+        *(re.match(r"(\d+)h(?:__(q_.*))?", c).groups() for c in pred.columns)
+    )
+    date = [pred_time + datetime.timedelta(hours=int(h)) for h in horizons]
     load = pred.row()
-    return pl.DataFrame({"time": date, "load_mw": load})
+    if not quantile_regression:
+        return pl.DataFrame({"time": date, "load_mw": load})
+    return pl.DataFrame({"time": date, "load_mw": load, "quantile": q}).pivot(
+        on="quantile", values="load_mw", maintain_order=True, sort_columns=False
+    )
 
 
-def neg_mape(y_true, y_pred):
-    average = mean_absolute_percentage_error(y_true, y_pred)
-    detail = mean_absolute_percentage_error(y_true, y_pred, multioutput="raw_values")
-    return {"neg_mape_average": -average} | {
-        f"neg_mape_{c}": -float(s) for c, s in zip(y_true.columns, detail)
+def split_by_quantile(pred):
+    quantile_cols = {}
+    for c in pred.columns:
+        quantile_cols.setdefault(c.split("__")[1], []).append(c)
+    return {
+        q: pred.select(cols).rename(lambda c: c.split("__")[0])
+        for q, cols in quantile_cols.items()
     }
 
 
-def neg_mape_scorer(estimator, X, y):
-    return neg_mape(y, estimator.predict(X))
+def neg_mape(y_true, y_pred, quantile_regression=False):
+    if quantile_regression:
+        quantile_predictions = split_by_quantile(y_pred)
+        scores = {}
+        for q, q_pred in quantile_predictions.items():
+            scores.update(
+                {
+                    f"{k}__{q}": v
+                    for k, v in neg_mape(
+                        y_true, q_pred, quantile_regression=False
+                    ).items()
+                }
+            )
+        return scores
+    average = mean_absolute_percentage_error(y_true, y_pred)
+    detail = mean_absolute_percentage_error(y_true, y_pred, multioutput="raw_values")
+    return {"neg_mape__average": -average} | {
+        f"neg_mape__{c}": -float(s) for c, s in zip(y_true.columns, detail)
+    }
 
 
-def make_data_op(horizons=(1, 2, 12, 24)):
+def neg_mape_scorer(estimator, X, y, quantile_regression=False):
+    return neg_mape(y, estimator.predict(X), quantile_regression=quantile_regression)
+
+
+def pinball(y_true, y_pred):
+    quantile_predictions = split_by_quantile(y_pred)
+    scores = {}
+    for q, q_pred in quantile_predictions.items():
+        scores[f"d2_pinball_score__{q}"] = d2_pinball_score(
+            y_true, q_pred, alpha=float(q.removeprefix("q_"))
+        )
+    return scores
+
+
+def pinball_scorer(estimator, X, y):
+    return pinball(y, estimator.predict(X))
+
+
+def make_data_op(
+    horizons=(1, 2, 12, 24), quantile_strategy=None, quantiles=(0.05, 0.5, 0.95)
+):
     """
     Prepare a skrub dataop for multiple horizon prediction.
 
@@ -459,20 +514,28 @@ def make_data_op(horizons=(1, 2, 12, 24)):
     temperature_only = skrub.choose_bool(name="temperature_only", default=False)
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
 
-    regressor = HistGradientBoostingRegressor(
+    q_regressor = BinnedQuantileRegressor()
+    quantiles_to_predict = skrub.as_data_op(quantiles).skb.set_name("quantiles")
+    quantile_regression = quantile_strategy is not None
+    learning_rate = skrub.choose_float(
+        0.01, 0.7, default=0.1, log=True, name="learning_rate"
+    )
+    max_leaf_nodes = skrub.choose_int(3, 300, default=30, log=True, name="max_leaf_nodes")
+    hgb_regressor = HistGradientBoostingRegressor(
         random_state=0,
         loss=skrub.choose_from(["squared_error", "poisson", "gamma"], name="loss"),
-        learning_rate=skrub.choose_float(
-            0.01, 0.7, default=0.1, log=True, name="learning_rate"
-        ),
-        max_leaf_nodes=skrub.choose_int(
-            3, 300, default=30, log=True, name="max_leaf_nodes"
-        ),
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
     )
-
+    hgb_q_regressor_params = dict(
+        random_state=0,
+        loss="quantile",
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
+    )
     all_pred = {}
     for h in horizons:
-        pred = (
+        feat = (
             X.skb.apply_func(
                 add_features,
                 horizon=h,
@@ -487,26 +550,53 @@ def make_data_op(horizons=(1, 2, 12, 24)):
                 f"They only use data available at least {h} hours before the target time."
             )
             .skb.drop(["prediction_time", "target_time"])
-            .skb.apply(regressor, y=y[f"{h}h"])
-            .skb.set_name(f"pred_{h}h")
-            .skb.set_description(
-                f"Predicted load {h} hours after the 'prediction_time' in X."
+            .skb.apply(skrub.ToFloat())
+        )
+        y_horizon = y[f"{h}h"]
+        if quantile_strategy == "binning":
+            raw_pred = feat.skb.apply(
+                q_regressor,
+                y=y_horizon,
+                predict_kwargs={"quantiles": quantiles_to_predict},
             )
+        elif quantile_strategy == "multiple_regressors":
+            quantile_predictions = {}
+            for q in quantiles:
+                quantile_predictions[q] = feat.skb.apply(
+                    HistGradientBoostingRegressor(quantile=q, **hgb_q_regressor_params),
+                    y=y_horizon,
+                ).skb.set_name(f"pred_{h}h__q_{q}")
+            raw_pred = skrub.deferred(concat_quantiles)(quantile_predictions)
+        elif quantile_strategy is None:
+            raw_pred = feat.skb.apply(hgb_regressor, y=y_horizon)
+        else:
+            raise ValueError(f"Bad quantile strategy: {quantile_strategy!r}")
+        pred = raw_pred.skb.set_name(f"pred_{h}h").skb.set_description(
+            f"Predicted load {h} hours after the 'prediction_time' in X."
         )
         all_pred[h] = pred
 
     multi_horizon_pred = (
-        skrub.deferred(concat_horizons)(all_pred)
+        skrub.deferred(concat_horizons)(all_pred, quantile_regression=quantile_regression)
         .skb.set_name("pred_multi_horizon")
         .skb.set_description(
             "Output of the pipeline: predicted loads at multiple horizons. "
             "Column Xh contains the predicted load X hours after "
             "the 'prediction_time' in X."
         )
-        .skb.apply_func(post_process, prediction_time, range_end)
-        .skb.with_scoring(neg_mape_scorer)
+        .skb.apply_func(
+            post_process,
+            prediction_time,
+            range_end,
+            quantile_regression=quantile_regression,
+        )
+        .skb.with_scoring(
+            functools.partial(neg_mape_scorer, quantile_regression=quantile_regression)
+        )
     )
-    return multi_horizon_pred
+    if not quantile_regression:
+        return multi_horizon_pred
+    return multi_horizon_pred.skb.with_scoring(pinball_scorer)
 
 
 def get_env():
@@ -543,10 +633,14 @@ def cross_val_predict(data_op, environment=None):
                 split["X_test"], split["y_test"], prediction
             ).with_columns(split=pl.lit(i)),
         )
-        split_neg_mape = neg_mape(split["y_test"], prediction)
+        split_neg_mape = neg_mape(
+            split["y_test"],
+            prediction,
+            quantile_regression=prediction.shape[1] != split["y_test"].shape[1],
+        )
         split_start = split["X_test"]["prediction_time"].min()
         fmt_mape = " ".join(
-            f"{k.removeprefix('neg_mape_')}: {-v:.1%}" for k, v in split_neg_mape.items()
+            f"{k.removeprefix('neg_mape__')}: {-v:.1%}" for k, v in split_neg_mape.items()
         )
         print(f"{split_start:%Y-%m-%d}: {fmt_mape}")
         all_scores.append(split_neg_mape | {"split": i})
@@ -555,12 +649,17 @@ def cross_val_predict(data_op, environment=None):
     return all_predictions, all_scores
 
 
-def plot_predictions(results, horizons=None):
+def plot_predictions(results, horizons=None, start="2025-03-01"):
+    if start is not None:
+        results = results.filter(
+            pl.col("prediction_time")
+            > datetime.datetime.fromisoformat(start).astimezone(datetime.UTC)
+        )
     if horizons is None:
         horizons = [
             int(m.group(1))
             for c in results.columns
-            if (m := re.match(r"^pred_(\d+)h$", c)) is not None
+            if (m := re.match(r"^pred_(\d+)h.*$", c)) is not None
         ]
     fig = go.Figure()
     for i, h in enumerate(horizons):
@@ -571,19 +670,21 @@ def plot_predictions(results, horizons=None):
                     x=target_time,
                     y=results[f"{h}h"],
                     mode="lines+markers",
+                    line={"dash": "dash"},
                     name="true_load_mw",
                     hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
                 )
             )
-        fig.add_trace(
-            go.Scatter(
-                x=target_time,
-                y=results[f"pred_{h}h"],
-                mode="lines+markers",
-                name=f"predicted_load_mw_{h}h",
-                hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
+        for col in filter(lambda c: f"pred_{h}h" in c, results.columns):
+            fig.add_trace(
+                go.Scatter(
+                    x=target_time,
+                    y=results[col],
+                    mode="lines+markers",
+                    name=col,
+                    hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
+                )
             )
-        )
     fig.update_layout(height=600, title=f"CV predicted load mw")
     return fig
 

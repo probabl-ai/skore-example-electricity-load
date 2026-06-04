@@ -5,7 +5,7 @@ import electricity_load_forecasting as elf
 output_dir = elf.get_output_dir("cross_validate_")
 
 env = elf.get_env()
-pred = elf.make_data_op(horizons=(1, 12, 24))
+pred = elf.make_data_op(horizons=(1, 24), quantile_strategy="multiple_regressors")
 
 # %%
 # optional: make skrub reports
@@ -24,6 +24,7 @@ learner.report(
     title="predict",
     output_dir=output_dir / "predict_report",
 )
+print(learner.score(split["test"]))
 
 # %%
 cv_predictions, scores = elf.cross_val_predict(pred, env)
