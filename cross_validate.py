@@ -1,5 +1,3 @@
-import json
-
 import electricity_load_forecasting as elf
 
 output_dir = elf.get_output_dir("cross_validate_")

@@ -403,14 +403,17 @@ def neg_mape(y_true, y_pred, quantile_regression=False):
         quantile_predictions = split_by_quantile(y_pred)
         scores = {}
         for q, q_pred in quantile_predictions.items():
+            q_neg_mape = neg_mape(y_true, q_pred, quantile_regression=False)
             scores.update(
                 {
                     f"{k}__{q}": v
-                    for k, v in neg_mape(
-                        y_true, q_pred, quantile_regression=False
-                    ).items()
+                    for k, v in q_neg_mape.items()
                 }
             )
+            if q == "q_0.5":
+                # Pick the median if available for comparison with non-quantile
+                # models
+                scores.update(q_neg_mape)
         return scores
     average = mean_absolute_percentage_error(y_true, y_pred)
     detail = mean_absolute_percentage_error(y_true, y_pred, multioutput="raw_values")
