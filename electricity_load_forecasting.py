@@ -674,7 +674,7 @@ def get_report_predictions(report):
     Get predictions out of a skore report.
     """
     all_predictions = []
-    for i, r in enumerate(report.estimator_reports_):
+    for i, r in enumerate(report.reports_):
         all_predictions.append(
             concat_X_y_predictions(
                 r.X_test, r.y_test, r.get_predictions(data_source="test")

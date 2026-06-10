@@ -8,12 +8,14 @@ import electricity_load_forecasting as elf
 output_dir = elf.get_output_dir("cross_validate_")
 
 env = elf.get_env()
-pred = elf.make_data_op(horizons=(1, 12, 24))
+# pred = elf.make_data_op(horizons=(1, 12, 24), quantile_strategy="multiple_regressors")
+# quantile prediction prevents skore hub upload because it calls some metrics and displays
+# that fail due to the different y pred shape
+pred = elf.make_data_op(horizons=(1, 12, 24), quantile_strategy=None)
 
 # %%
 # optional: make skrub reports
 pred.skb.full_report(environment=env, output_dir=output_dir / "full_report")
-
 split = pred.skb.train_test_split(environment=env, split_func=elf.train_test_split)
 learner = pred.skb.make_learner()
 learner.report(
@@ -28,26 +30,35 @@ learner.report(
     title="predict",
     output_dir=output_dir / "predict_report",
 )
+learner.report(
+    environment={"start": elf.get_new_date()},
+    mode="predict",
+    title="predict_single_date",
+    output_dir=output_dir / "predict_single_date_report",
+)
 
 # %%
-report = skore.CrossValidationReport(pred, data=env, splitter=elf.Splitter())
-report.metrics.add("mean_absolute_percentage_error")
-print(report.metrics.summarize(metric="mean_absolute_percentage_error").frame())
+report = skore.CrossValidationReport(pred, data=env, splitter=elf.TimeSeriesSplitter())
 
+# %%
+print(report.metrics.summarize(metric="score").frame())
+
+# %%
 with open(output_dir / "skore_report.pickle", "wb") as f:
     pickle.dump(report, f)
 
 cv_predictions = elf.get_report_predictions(report)
 cv_predictions.write_parquet(output_dir / "cv_predictions.parquet")
 
-cv_scores = (
-    report.metrics.summarize(metric="mean_absolute_percentage_error")
-    .frame(aggregate=None, flat_index=True)
-    .T["Mean Absolute Percentage Error"]
-    .to_list()
-)
-(output_dir / "cv_scores").write_text(json.dumps(cv_scores), "utf-8")
-
-fig = elf.plot_predictions(cv_predictions)
+fig = elf.plot_predictions(cv_predictions, horizons=(24,))
 fig.write_html(output_dir / "cv_predictions_plot.html")
 fig.show(renderer="browser")
+
+# %%
+
+# does not work: store in skore-hub
+# for metric in set(report.metrics.available()) - {'score', 'fit_time', 'predict_time'}:
+    # report.metrics.remove(metric)
+# skore.login()
+# project = skore.Project("jerome-workspace-1/electricity_forecasting", mode="hub")
+# project.put("CrossValidationReport", report)
