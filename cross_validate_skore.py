@@ -9,14 +9,16 @@ output_dir = elf.get_output_dir("cross_validate_")
 
 # %%
 parser = argparse.ArgumentParser()
+
+# currently put() does not work for multioutput regression
 parser.add_argument(
     "--quantile_strategy", default=None, choices=["multiple_regressors", "binning"]
 )
-parser.add_argument("--skip_reports", action="store_true")
+parser.add_argument("--skrub_reports", action="store_true")
 args = parser.parse_args()
 
 quantile_strategy = args.quantile_strategy
-skip_reports = args.skip_reports
+skip_reports = not args.skrub_reports
 
 # %%
 
@@ -73,7 +75,13 @@ fig.show(renderer="browser")
 # store in local
 for metric in set(report.metrics.available()) - {"score", "fit_time", "predict_time"}:
     report.metrics.remove(metric)
-project = skore.Project("jerome-workspace-1/electricity_forecasting", mode="local")
+project = skore.Project("jerome-workspace-1/electricity_forecasting_1", mode="local")
+project.put(f"{quantile_strategy}_default", report)
+
+# %%
+# store in hub
+skore.login()
+project = skore.Project("jerome-workspace-1/electricity_forecasting_1", mode="hub")
 project.put(f"{quantile_strategy}_default", report)
 
 # %%

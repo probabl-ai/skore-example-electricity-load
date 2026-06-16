@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 
 import holidays
+import numpy as np
 import polars as pl
 from polars import selectors as cs
 import skrub
@@ -333,6 +334,11 @@ def _split_indices(X, test_start_date, test_length_days):
 
 class TimeSeriesSplitter:
     def split(self, X, y=None, groups=None):
+        if isinstance(X, np.ndarray):
+            # patch to prevent skore upload from crashing
+            from sklearn.model_selection import KFold
+            return KFold().split(X)
+
         min_train_days = 365 * 2
         test_length_days = 24 * 7  # 24 weeks
         test_start_dates = pl.date_range(
@@ -349,6 +355,9 @@ class TimeSeriesSplitter:
                 yield train, test
 
     def get_n_splits(self, X, y=None, groups=None):
+        if X is None or isinstance(X, np.ndarray):
+            return 5
+
         return len(list(self.split(X, y)))
 
 
