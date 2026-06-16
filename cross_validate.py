@@ -3,11 +3,11 @@ import electricity_load_forecasting as elf
 output_dir = elf.get_output_dir("cross_validate_")
 
 env = elf.get_env()
-pred = elf.make_data_op(horizons=(1, 24), quantile_strategy="multiple_regressors")
+pred = elf.make_data_op(horizons=(1,), quantile_strategy="tabicl")
 
 # %%
 # optional: make skrub reports
-pred.skb.full_report(environment=env, output_dir=output_dir / "full_report")
+# pred.skb.full_report(environment=env, output_dir=output_dir / "full_report")
 split = pred.skb.train_test_split(environment=env)
 learner = pred.skb.make_learner()
 learner.report(
