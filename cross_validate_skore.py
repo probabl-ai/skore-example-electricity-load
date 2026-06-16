@@ -75,3 +75,7 @@ for metric in set(report.metrics.available()) - {"score", "fit_time", "predict_t
     report.metrics.remove(metric)
 project = skore.Project("jerome-workspace-1/electricity_forecasting", mode="local")
 project.put(f"{quantile_strategy}_default", report)
+
+# %%
+# checks
+print(report.checks.summarize(ignore=["SKD008"]))
