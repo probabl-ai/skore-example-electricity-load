@@ -425,8 +425,15 @@ def pinball(y_true, y_pred):
     quantile_predictions = split_by_quantile(y_pred)
     scores = {}
     for q, q_pred in quantile_predictions.items():
-        scores[f"d2_pinball_score__{q}"] = d2_pinball_score(
+        scores[f"d2_pinball_score__average__{q}"] = d2_pinball_score(
             y_true, q_pred, alpha=float(q.removeprefix("q_"))
+        )
+        detail = d2_pinball_score(y_true, q_pred, multioutput="raw_values")
+        scores.update(
+            {
+                f"d2_pinball_score__{c}__{q}": float(s)
+                for c, s in zip(y_true.columns, detail)
+            }
         )
     return scores
 
