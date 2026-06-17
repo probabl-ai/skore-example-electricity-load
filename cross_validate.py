@@ -1,9 +1,21 @@
+import argparse
+
 import electricity_load_forecasting as elf
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--quantile_strategy",
+    default=None,
+    choices=["tabicl", "multiple_regressors", "binning"],
+)
+args = parser.parse_args()
+
+quantile_strategy = args.quantile_strategy
 
 output_dir = elf.get_output_dir("cross_validate_")
 
 env = elf.get_env()
-pred = elf.make_data_op(horizons=(1, 24), quantile_strategy="tabicl")
+pred = elf.make_data_op(horizons=(1, 24), quantile_strategy=quantile_strategy)
 
 # %%
 # optional: make skrub reports

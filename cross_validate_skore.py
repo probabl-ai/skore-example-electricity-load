@@ -10,7 +10,7 @@ output_dir = elf.get_output_dir("cross_validate_")
 # %%
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--quantile_strategy", default=None, choices=["multiple_regressors", "binning"]
+    "--quantile_strategy", default=None, choices=["tabicl", "multiple_regressors", "binning"]
 )
 parser.add_argument("--skip_reports", action="store_true")
 args = parser.parse_args()
@@ -30,7 +30,7 @@ pred = elf.make_data_op(horizons=(1, 12, 24), quantile_strategy=quantile_strateg
 # %%
 # optional: make skrub reports
 if not skip_reports:
-    pred.skb.full_report(environment=env, output_dir=output_dir / "full_report")
+    # pred.skb.full_report(environment=env, output_dir=output_dir / "full_report")
     split = pred.skb.train_test_split(environment=env, split_func=elf.train_test_split)
     learner = pred.skb.make_learner()
     learner.report(

@@ -4,6 +4,7 @@ import datetime
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 import holidays
 import polars as pl
@@ -48,6 +49,7 @@ def get_output_dir(prefix=""):
             {
                 "commit": last_commit_hash(),
                 "date": datetime.datetime.now().isoformat(),
+                "argv": sys.argv,
             }
         ),
         "utf-8",
@@ -448,7 +450,7 @@ def tabicl_quantiles_to_df(prediction, quantiles, mode=skrub.eval_mode()):
     return pl.DataFrame(prediction, schema=[f"q_{q}" for q in quantiles])
 
 
-def limit_tabicl_context(df, size=9000, mode=skrub.eval_mode()):
+def limit_train_size(df, size=9000, mode=skrub.eval_mode()):
     if mode in ("fit", "fit_transform", "preview"):
         return df.tail(size)
     else:
@@ -525,9 +527,9 @@ def make_data_op(
         )
     )
 
-    if quantile_strategy == "tabicl":
-        X = X.skb.apply_func(limit_tabicl_context)
-        y = y.skb.apply_func(limit_tabicl_context)
+    if quantile_strategy in ["tabicl", "binning"]:
+        X = X.skb.apply_func(limit_train_size)
+        y = y.skb.apply_func(limit_train_size)
     temperature_only = skrub.choose_bool(name="temperature_only", default=True)
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
 
