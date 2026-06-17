@@ -441,6 +441,13 @@ def tabicl_quantiles_to_df(prediction, quantiles, mode=skrub.eval_mode()):
     return pl.DataFrame(prediction, schema=[f"q_{q}" for q in quantiles])
 
 
+def limit_tabicl_context(df, size=9000, mode=skrub.eval_mode()):
+    if mode in ("fit", "fit_transform", "preview"):
+        return df.tail(size)
+    else:
+        return df
+
+
 def make_data_op(
     horizons=(1, 2, 12, 24), quantile_strategy=None, quantiles=(0.05, 0.5, 0.95)
 ):
@@ -511,7 +518,10 @@ def make_data_op(
         )
     )
 
-    temperature_only = skrub.choose_bool(name="temperature_only", default=False)
+    if quantile_strategy == "tabicl":
+        X = X.skb.apply_func(limit_tabicl_context)
+        y = y.skb.apply_func(limit_tabicl_context)
+    temperature_only = skrub.choose_bool(name="temperature_only", default=True)
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
 
     quantiles_to_predict = skrub.as_data_op(quantiles).skb.set_name("quantiles")
@@ -647,11 +657,13 @@ def plot_predictions(results, horizons=None, start="2025-03-01"):
             > datetime.datetime.fromisoformat(start).astimezone(datetime.UTC)
         )
     if horizons is None:
-        horizons = [
-            int(m.group(1))
-            for c in results.columns
-            if (m := re.match(r"^pred_(\d+)h.*$", c)) is not None
-        ]
+        horizons = sorted(
+            {
+                int(m.group(1))
+                for c in results.columns
+                if (m := re.match(r"^pred_(\d+)h.*$", c)) is not None
+            }
+        )
     fig = go.Figure()
     for i, h in enumerate(horizons):
         target_time = results["prediction_time"] + datetime.timedelta(hours=h)

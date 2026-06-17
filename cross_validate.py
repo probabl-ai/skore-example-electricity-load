@@ -3,7 +3,7 @@ import electricity_load_forecasting as elf
 output_dir = elf.get_output_dir("cross_validate_")
 
 env = elf.get_env()
-pred = elf.make_data_op(horizons=(1,), quantile_strategy="tabicl")
+pred = elf.make_data_op(horizons=(1, 24), quantile_strategy="tabicl")
 
 # %%
 # optional: make skrub reports
