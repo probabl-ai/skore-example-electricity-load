@@ -4,6 +4,7 @@ import datetime
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 import holidays
 import polars as pl
@@ -48,6 +49,7 @@ def get_output_dir(prefix=""):
             {
                 "commit": last_commit_hash(),
                 "date": datetime.datetime.now().isoformat(),
+                "argv": sys.argv,
             }
         ),
         "utf-8",
@@ -404,12 +406,7 @@ def neg_mape(y_true, y_pred, quantile_regression=False):
         scores = {}
         for q, q_pred in quantile_predictions.items():
             q_neg_mape = neg_mape(y_true, q_pred, quantile_regression=False)
-            scores.update(
-                {
-                    f"{k}__{q}": v
-                    for k, v in q_neg_mape.items()
-                }
-            )
+            scores.update({f"{k}__{q}": v for k, v in q_neg_mape.items()})
             if q == "q_0.5":
                 # Pick the median if available for comparison with non-quantile
                 # models
@@ -430,14 +427,34 @@ def pinball(y_true, y_pred):
     quantile_predictions = split_by_quantile(y_pred)
     scores = {}
     for q, q_pred in quantile_predictions.items():
-        scores[f"d2_pinball_score__{q}"] = d2_pinball_score(
+        scores[f"d2_pinball_score__average__{q}"] = d2_pinball_score(
             y_true, q_pred, alpha=float(q.removeprefix("q_"))
+        )
+        detail = d2_pinball_score(y_true, q_pred, multioutput="raw_values")
+        scores.update(
+            {
+                f"d2_pinball_score__{c}__{q}": float(s)
+                for c, s in zip(y_true.columns, detail)
+            }
         )
     return scores
 
 
 def pinball_scorer(estimator, X, y):
     return pinball(y, estimator.predict(X))
+
+
+def tabicl_quantiles_to_df(prediction, quantiles, mode=skrub.eval_mode()):
+    if mode == "fit":
+        return prediction
+    return pl.DataFrame(prediction, schema=[f"q_{q}" for q in quantiles])
+
+
+def limit_train_size(df, size=9000, mode=skrub.eval_mode()):
+    if mode in ("fit", "fit_transform", "preview"):
+        return df.tail(size)
+    else:
+        return df
 
 
 def make_data_op(
@@ -510,7 +527,10 @@ def make_data_op(
         )
     )
 
-    temperature_only = skrub.choose_bool(name="temperature_only", default=False)
+    if quantile_strategy in ["tabicl", "binning"]:
+        X = X.skb.apply_func(limit_train_size)
+        y = y.skb.apply_func(limit_train_size)
+    temperature_only = skrub.choose_bool(name="temperature_only", default=True)
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
 
     quantiles_to_predict = skrub.as_data_op(quantiles).skb.set_name("quantiles")
@@ -536,13 +556,18 @@ def make_data_op(
         predict_kwargs = {"quantiles": quantiles_to_predict}
     elif quantile_strategy == "multiple_regressors":
         predictor = hgb_q_regressor
+    elif quantile_strategy == "tabicl":
+        from tabicl import TabICLRegressor
+
+        predictor = TabICLRegressor(n_estimators=1)
+        predict_kwargs = {"output_type": "quantiles", "alphas": quantiles_to_predict}
     elif quantile_strategy is None:
         predictor = hgb_regressor
     else:
         raise ValueError(f"Bad quantile strategy: {quantile_strategy!r}")
     all_pred = {}
     for h in horizons:
-        all_pred[h] = (
+        h_pred = (
             X.skb.apply_func(
                 add_features,
                 horizon=h,
@@ -558,11 +583,13 @@ def make_data_op(
             )
             .skb.drop(["prediction_time", "target_time"])
             .skb.apply(skrub.ToFloat())
+            .to_numpy()
             .skb.apply(predictor, y=y[f"{h}h"], predict_kwargs=predict_kwargs)
-            .skb.set_name(f"pred_{h}h")
-            .skb.set_description(
-                f"Predicted load {h} hours after the 'prediction_time' in X."
-            )
+        )
+        if quantile_strategy == "tabicl":
+            h_pred = h_pred.skb.apply_func(tabicl_quantiles_to_df, quantiles_to_predict)
+        all_pred[h] = h_pred.skb.set_name(f"pred_{h}h").skb.set_description(
+            f"Predicted load {h} hours after the 'prediction_time' in X."
         )
 
     multi_horizon_pred = (
@@ -639,11 +666,13 @@ def plot_predictions(results, horizons=None, start="2025-03-01"):
             > datetime.datetime.fromisoformat(start).astimezone(datetime.UTC)
         )
     if horizons is None:
-        horizons = [
-            int(m.group(1))
-            for c in results.columns
-            if (m := re.match(r"^pred_(\d+)h.*$", c)) is not None
-        ]
+        horizons = sorted(
+            {
+                int(m.group(1))
+                for c in results.columns
+                if (m := re.match(r"^pred_(\d+)h.*$", c)) is not None
+            }
+        )
     fig = go.Figure()
     for i, h in enumerate(horizons):
         target_time = results["prediction_time"] + datetime.timedelta(hours=h)
