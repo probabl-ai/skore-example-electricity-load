@@ -5,7 +5,6 @@ import skore
 
 import electricity_load_forecasting as elf
 
-output_dir = elf.get_output_dir("cross_validate_skore_")
 
 # %%
 parser = argparse.ArgumentParser()
@@ -20,7 +19,7 @@ skip_reports = args.skip_reports
 horizons = (1, 24) if quantile_strategy == 'binning' else (1, 12, 24)
 
 # %%
-
+output_dir = elf.get_output_dir("cross_validate_skore_")
 
 env = elf.get_env()
 # quantile prediction prevents skore hub upload because it calls some metrics and displays
@@ -67,8 +66,8 @@ with open(output_dir / "skore_report.pickle", "wb") as f:
 # store in local
 for metric in set(report.metrics.available()) - {"score", "fit_time", "predict_time"}:
     report.metrics.remove(metric)
-project = skore.Project("jerome-workspace-1/electricity_forecasting", mode="local")
-project.put(f"{quantile_strategy}_default", report)
+project = skore.Project(name="electricity_forecasting", mode="local")
+project.put(f"quantile-strategy_{quantile_strategy}", report)
 
 # %%
 cv_predictions = elf.get_report_predictions(report)
