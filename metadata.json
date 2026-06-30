@@ -1,1 +1,1 @@
-{"commit": "ecb27f54a9d50e2a0d42dc46a4cbd5d08c00533f", "date": "2026-06-04T15:24:26.299744"}
+{"commit": "ecca776c447a2813c0bbcb7174f588c4420938f4", "date": "2026-06-17T14:45:08.009364", "argv": ["cross_validate.py", "--quantile_strategy", "tabicl"]}
