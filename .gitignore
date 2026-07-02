@@ -5,6 +5,7 @@ notebooks/*.pickle
 notebooks/*.ipynb
 notebooks/*.sqlite
 notebooks/*.csv
+notebooks/optuna.db
 
 *~
 *#
