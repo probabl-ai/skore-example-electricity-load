@@ -56,25 +56,42 @@ if not skip_reports:
 report = skore.CrossValidationReport(pred, data=env, splitter=elf.TimeSeriesSplitter())
 
 # %%
-print(report.metrics.summarize(metric="score").frame())
-
-# %%
 with open(output_dir / "skore_report.pickle", "wb") as f:
     pickle.dump(report, f)
 
 # %%
-# store in local
 for metric in set(report.metrics.available()) - {"score", "fit_time", "predict_time"}:
     report.metrics.remove(metric)
-project = skore.Project(name="electricity_forecasting", mode="local")
+
+print(report.metrics.summarize().frame())
+# %%
+# store in local
+# only possible after merging new local storage in skore
+
+# project = skore.Project(name="electricity_forecasting", mode="local")
+# project.put(f"quantile-strategy_{quantile_strategy}", report)
+
+# %%
+# store in hub
+import dotenv
+import os
+dotenv.load_dotenv()
+
+skore.login()
+project = skore.Project(name="electricity_forecasting", mode="hub", workspace=os.environ["SKORE_HUB_WORKSPACE"])
 project.put(f"quantile-strategy_{quantile_strategy}", report)
+
 
 # %%
 cv_predictions = elf.get_report_predictions(report)
 cv_predictions.write_parquet(output_dir / "cv_predictions.parquet")
 
+fig = elf.plot_predictions(cv_predictions, horizons=(1,))
+fig.write_html(output_dir / "cv_predictions_plot_1h.html")
+fig.show(renderer="browser")
+
 fig = elf.plot_predictions(cv_predictions, horizons=(24,))
-fig.write_html(output_dir / "cv_predictions_plot.html")
+fig.write_html(output_dir / "cv_predictions_plot_24h.html")
 fig.show(renderer="browser")
 
 # %%

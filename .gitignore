@@ -1,3 +1,4 @@
+.env
 results/
 graph.svg
 notebooks/*.html

@@ -541,6 +541,9 @@ def make_data_op(
     max_leaf_nodes = skrub.choose_int(3, 300, default=30, log=True, name="max_leaf_nodes")
     hgb_params = dict(
         random_state=0,
+        max_iter=500,
+        early_stopping=True,
+        n_iter_no_change=100,
         learning_rate=learning_rate,
         max_leaf_nodes=max_leaf_nodes,
     )

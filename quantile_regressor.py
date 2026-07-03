@@ -20,15 +20,18 @@ class HGBQuantileRegressor(RegressorMixin, BaseEstimator):
         self.hgb_params = hgb_params
 
     def fit(self, X, y):
+        self.quantiles_ = sorted(self.quantiles)
         params = (self.hgb_params or {}) | {"loss": "quantile"}
         self.estimators_ = {
             q: HistGradientBoostingRegressor(quantile=q, **params).fit(X, y)
-            for q in self.quantiles
+            for q in self.quantiles_
         }
         return self
 
     def predict(self, X):
-        return pl.DataFrame({f"q_{q}": e.predict(X) for q, e in self.estimators_.items()})
+        result = np.asarray([e.predict(X) for e in self.estimators_.values()])
+        result.sort(axis=0)
+        return pl.DataFrame(result, schema=[f"q_{q}" for q in self.quantiles_])
 
 
 class BinnedQuantileRegressor(BaseEstimator, RegressorMixin):
