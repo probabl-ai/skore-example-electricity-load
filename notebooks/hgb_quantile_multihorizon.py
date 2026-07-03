@@ -10,6 +10,7 @@ import datetime
 import json
 from pathlib import Path
 
+import numpy as np
 import holidays
 import polars as pl
 from polars import selectors as cs
@@ -315,6 +316,9 @@ def pinball(y_true, y_pred):
                 for c, s in zip(y_true.columns, detail)
             }
         )
+    scores["d2_pinball_score__average"] = np.mean(
+        [v for k, v in scores.items() if k.startswith("d2_pinball_score__average__")]
+    )
     return scores
 
 
@@ -328,18 +332,21 @@ class QuantileRegressor(RegressorMixin, BaseEstimator):
         self.hgb_params = hgb_params
 
     def fit(self, X, y):
+        self.quantiles_ = sorted(self.quantiles)
         params = (self.hgb_params or {}) | {"loss": "quantile"}
         self.estimators_ = {
             q: HistGradientBoostingRegressor(quantile=q, **params).fit(X, y)
-            for q in self.quantiles
+            for q in self.quantiles_
         }
         return self
 
     def predict(self, X):
-        return pl.DataFrame({f"q_{q}": e.predict(X) for q, e in self.estimators_.items()})
+        result = np.asarray([e.predict(X) for e in self.estimators_.values()])
+        result.sort(axis=0)
+        return pl.DataFrame(result, schema=[f"q_{q}" for q in self.quantiles_])
 
 
-def make_data_op(horizons=(1, 12, 24), quantiles=(0.05, 0.5, 0.95)):
+def make_data_op(horizons=(1, 12, 24), quantiles=(0.025, 0.5, 0.975)):
     range_start = skrub.var("start")
     range_end = skrub.var("end")
     history_fetcher = skrub.var(
@@ -456,7 +463,7 @@ def plot_predictions(results, horizons=None, start="2025-03-01"):
                     hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
                 )
             )
-    fig.update_layout(height=600, title=f"CV predicted load mw")
+    fig.update_layout(height=900, title=f"CV predicted load mw")
     return fig
 
 
@@ -472,6 +479,12 @@ def get_report_predictions(report):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--search", action="store_true", help="perform randomized search")
+    args = parser.parse_args()
+    do_search = args.search
 
     env = {
         "start": "2021-03-23",
@@ -482,27 +495,30 @@ if __name__ == "__main__":
     pred.skb.full_report(env)
     split = pred.skb.train_test_split(environment=env, split_func=train_test_split)
 
-    storage = f"sqlite:///optuna.db"
-    study_name = "randomized_search"
-    search = pred.skb.make_randomized_search(
-        backend="optuna",
-        n_iter=2,
-        n_jobs=2,
-        refit="d2_pinball_score__average__q_0.5",
-        storage=storage,
-        study_name=study_name,
-    )
-    search.fit(split["train"])
-    with open("search.pickle", "wb") as f:
-        pickle.dump(search, f)
-    scores, predictions = search.best_learner_.score(
-        split["test"], return_predictions=True
-    )
+    if do_search:
+        storage = f"sqlite:///optuna.db"
+        study_name = "randomized_search"
+        learner = pred.skb.make_randomized_search(
+            backend="optuna",
+            n_iter=16,
+            n_jobs=2,
+            refit="d2_pinball_score__average",
+            storage=storage,
+            study_name=study_name,
+        )
+    else:
+        learner = pred.skb.make_learner()
+    learner.fit(split["train"])
+    with open(f"{'search' if do_search else 'learner'}.pickle", "wb") as f:
+        pickle.dump(learner, f)
+    scores, predictions = learner.score(split["test"], return_predictions=True)
     results = concat_X_y_predictions(
         split["X_test"], split["y_test"], predictions["predict"]
     )
     print(scores)
     fig = plot_predictions(results, horizons=(1,))
     fig.show(renderer="browser")
+    fig.write_html("1_h.html")
     fig = plot_predictions(results, horizons=(24,))
     fig.show(renderer="browser")
+    fig.write_html("24_h.html")
