@@ -695,7 +695,7 @@ def plot_predictions(results, horizons=None, start="2025-03-01"):
                 go.Scatter(
                     x=target_time,
                     y=results[col],
-                    mode="lines+markers",
+                    mode="lines",
                     name=col,
                     hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
                 )

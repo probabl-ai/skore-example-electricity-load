@@ -7,6 +7,7 @@ notebooks/*.ipynb
 notebooks/*.sqlite
 notebooks/*.csv
 notebooks/optuna.db
+skore_data/
 
 *~
 *#

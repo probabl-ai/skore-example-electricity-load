@@ -1,99 +1,124 @@
+from pathlib import Path
 import argparse
 import pickle
+import datetime
 
 import skore
 
 import electricity_load_forecasting as elf
 
-
 # %%
 parser = argparse.ArgumentParser()
+parser.add_argument("--n_trials", type=int, default=None)
 parser.add_argument(
-    "--quantile_strategy", default=None, choices=["tabicl", "multiple_regressors", "binning"]
+    "--quantile_strategy",
+    default=None,
+    choices=["multiple_regressors", "tabicl", "binning"],
 )
-parser.add_argument("--skip_reports", action="store_true")
 args = parser.parse_args()
-
 quantile_strategy = args.quantile_strategy
-skip_reports = args.skip_reports
-horizons = (1, 24) if quantile_strategy == 'binning' else (1, 12, 24)
+n_trials = args.n_trials
+do_search = n_trials is not None
+
+horizons = (1, 12, 24)
 
 # %%
-output_dir = elf.get_output_dir("cross_validate_skore_")
-
-env = elf.get_env()
-# quantile prediction prevents skore hub upload because it calls some metrics and displays
-# that fail due to the different y pred shape
 pred = elf.make_data_op(horizons=horizons, quantile_strategy=quantile_strategy)
-# pred = elf.make_data_op(horizons=(1, 12, 24), quantile_strategy=None)
+env = elf.get_env()
 
 # %%
-# optional: make skrub reports
-if not skip_reports:
-    # pred.skb.full_report(environment=env, output_dir=output_dir / "full_report")
-    split = pred.skb.train_test_split(environment=env, split_func=elf.train_test_split)
+split = pred.skb.train_test_split(environment=env, split_func=elf.train_test_split)
+
+if do_search:
+    # cannot store in the report dir as it is not yet created
+    db_name = f"optuna_{datetime.datetime.now().isoformat()}.db"
+    storage = f"sqlite:///{db_name}"
+    study_name = "randomized_search"
+    learner = pred.skb.make_randomized_search(
+        backend="optuna",
+        n_iter=n_trials,
+        n_jobs=2,
+        refit="neg_mape__average",
+        storage=storage,
+        study_name=study_name,
+    )
+else:
     learner = pred.skb.make_learner()
-    learner.report(
-        environment=split["train"],
-        mode="fit",
-        title="fit",
-        output_dir=output_dir / "fit_report",
-    )
-    learner.report(
-        environment=split["test"],
-        mode="predict",
-        title="predict",
-        output_dir=output_dir / "predict_report",
-    )
-    learner.report(
-        environment={"start": elf.get_new_date()},
-        mode="predict",
-        title="predict_single_date",
-        output_dir=output_dir / "predict_single_date_report",
-    )
 
 # %%
-report = skore.CrossValidationReport(pred, data=env, splitter=elf.TimeSeriesSplitter())
+report = skore.EstimatorReport(
+    learner, train_data=split["train"], test_data=split["test"]
+)
 
 # %%
-with open(output_dir / "skore_report.pickle", "wb") as f:
-    pickle.dump(report, f)
+print(report.metrics.summarize())
 
 # %%
-for metric in set(report.metrics.available()) - {"score", "fit_time", "predict_time"}:
-    report.metrics.remove(metric)
+project = skore.Project(name="electricity_forecasting", mode="local")
+report_name = "__".join(
+    [
+        "hgb_mean" if quantile_strategy is None else quantile_strategy,
+        f"search_{n_trials}" if do_search else "default",
+    ]
+)
+report_path = project.put(report_name, report)
 
-print(report.metrics.summarize().frame())
 # %%
-# store in local
-# only possible after merging new local storage in skore
+if do_search:
+    Path(db_name).rename(report_path / "user" / "optuna.db")
+    with open(report_path / "user" / "best_learner.pickle", "wb") as f:
+        pickle.dump(report.learner_.best_learner_, f)
+    fig = report.learner_.plot_results(show_scores=["neg_mape__average"], show_times=[])
+    fig.write_html(report_path / "user" / "parallel_coord.html")
 
-# project = skore.Project(name="electricity_forecasting", mode="local")
-# project.put(f"quantile-strategy_{quantile_strategy}", report)
+# %%
+results = elf.concat_X_y_predictions(
+    report.X_test, report.y_test, report.get_predictions(data_source="test")
+)
+
+fig = elf.plot_predictions(results, horizons=(1,))
+fig.show(renderer="browser")
+fig.write_html(report_path / "user" / "1h.html")
+fig = elf.plot_predictions(results, horizons=(24,))
+fig.show(renderer="browser")
+fig.write_html(report_path / "user" / "24h.html")
 
 # %%
 # store in hub
-import dotenv
-import os
-dotenv.load_dotenv()
+if quantile_strategy is None:
+    import dotenv
+    import os
 
-skore.login()
-project = skore.Project(name="electricity_forecasting", mode="hub", workspace=os.environ["SKORE_HUB_WORKSPACE"])
-project.put(f"quantile-strategy_{quantile_strategy}", report)
+    dotenv.load_dotenv()
 
+    skore.login()
+    project = skore.Project(
+        name="electricity_forecasting",
+        mode="hub",
+        workspace=os.environ["SKORE_HUB_WORKSPACE"],
+    )
+    project.put(report_name, report)
 
-# %%
-cv_predictions = elf.get_report_predictions(report)
-cv_predictions.write_parquet(output_dir / "cv_predictions.parquet")
-
-fig = elf.plot_predictions(cv_predictions, horizons=(1,))
-fig.write_html(output_dir / "cv_predictions_plot_1h.html")
-fig.show(renderer="browser")
-
-fig = elf.plot_predictions(cv_predictions, horizons=(24,))
-fig.write_html(output_dir / "cv_predictions_plot_24h.html")
-fig.show(renderer="browser")
 
 # %%
-# checks
-# print(report.checks.summarize(ignore=["SKD008"]))
+pred.skb.full_report(environment=env, output_dir=report_path / "user" / "full_report")
+
+# %%
+learner = report.learner_
+try:
+    learner = learner.best_learner_
+except AttributeError:
+    pass
+
+learner.report(
+    environment=split["test"],
+    mode="predict",
+    title="predict",
+    output_dir=report_path / "user" / "predict_report",
+)
+learner.report(
+    environment={"start": elf.get_new_date()},
+    mode="predict",
+    title="predict_single_date",
+    output_dir=report_path / "user" / "predict_single_date_report",
+)
