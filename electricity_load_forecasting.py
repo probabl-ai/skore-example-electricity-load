@@ -718,11 +718,11 @@ def get_report_predictions(report):
     return pl.concat(all_predictions, how="vertical")
 
 
-def get_new_date():
+def get_new_date(add_hours=0):
     """Get the first hour out of the range of historical data"""
     return (
         (fetch_load_mw_history()["time"] - datetime.timedelta(seconds=1)).dt.truncate(
             "1h"
         )
-        + datetime.timedelta(hours=1)
+        + datetime.timedelta(hours=add_hours)
     ).max()

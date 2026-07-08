@@ -49,6 +49,9 @@ else:
 report = skore.EstimatorReport(
     learner, train_data=split["train"], test_data=split["test"]
 )
+for metric in set(report.metrics.available()) - {"score", "fit_time", "predict_time"}:
+    report.metrics.remove(metric)
+
 
 # %%
 print(report.metrics.summarize())
