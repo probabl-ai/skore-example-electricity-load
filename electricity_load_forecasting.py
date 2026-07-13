@@ -237,6 +237,17 @@ def add_weather(
         assert city_names == "all"
         city_names = _ALL_CITIES
     with_weather = target_time.lazy()
+
+    rolls = [(lag * 3, 3) for lag in range(8)]
+    rolling_means = [
+        cs.matches(".*temperature.*")
+        .as_expr()
+        .mean()
+        .rolling(index_column="time", period=f"{width}h", offset=f"{-width -lag}h")
+        .name.map(f"{{}}_lag_{lag}_width_{width}".format)
+        for lag, width in rolls
+    ]
+
     for city in city_names:
         with_weather = with_weather.join(
             city_weather_fetcher(city)
@@ -246,6 +257,7 @@ def add_weather(
                 if temperature_only
                 else pl.all()
             )
+            .with_columns(*rolling_means)
             .select(
                 pl.col("time"),
                 (~cs.by_name("time")).as_expr().name.map(f"weather_{{}}_{city}".format),
@@ -458,7 +470,7 @@ def limit_train_size(df, size=9000, mode=skrub.eval_mode()):
 
 
 def make_data_op(
-    horizons=(1, 2, 12, 24), quantile_strategy=None, quantiles=(0.05, 0.5, 0.95)
+    horizons=(1, 12, 24), quantile_strategy=None, quantiles=(0.05, 0.5, 0.95)
 ):
     """
     Prepare a skrub dataop for multiple horizon prediction.
@@ -488,26 +500,20 @@ def make_data_op(
     range_start = skrub.var("start").skb.set_description(
         "The first time at which a prediction is made."
     )
-    range_end = (
-        skrub.as_data_op(None)
-        .skb.set_name("end")
-        .skb.set_description("The last time at which a prediction is made.")
+    range_end = skrub.var("end", None, becomes_default=True).skb.set_description(
+        "The last time at which a prediction is made."
     )
-    load_mw_history_fetcher = (
-        skrub.as_data_op(fetch_load_mw_history)
-        .skb.set_name("load_mw_history_fetcher")
-        .skb.set_description(
-            "Function that loads the historical load data. "
-            "See signature of electricity_load_forecasting.fetch_load_mw_history."
-        )
+    load_mw_history_fetcher = skrub.var(
+        "load_mw_history_fetcher", fetch_load_mw_history, becomes_default=True
+    ).skb.set_description(
+        "Function that loads the historical load data. "
+        "See signature of electricity_load_forecasting.fetch_load_mw_history."
     )
-    city_weather_fetcher = (
-        skrub.as_data_op(fetch_city_weather)
-        .skb.set_name("city_weather_fetcher")
-        .skb.set_description(
-            "Function that loads the weather forecast for a city. "
-            "See signature of electricity_load_forecasting.fetch_city_weather."
-        )
+    city_weather_fetcher = skrub.var(
+        "city_weather_fetcher", fetch_city_weather, becomes_default=True
+    ).skb.set_description(
+        "Function that loads the weather forecast for a city. "
+        "See signature of electricity_load_forecasting.fetch_city_weather."
     )
     prediction_time = skrub.deferred(time_range)(range_start, range_end)
     load_mw_history = (
@@ -533,7 +539,7 @@ def make_data_op(
     temperature_only = skrub.choose_bool(name="temperature_only", default=True)
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
 
-    quantiles_to_predict = skrub.as_data_op(quantiles).skb.set_name("quantiles")
+    quantiles_to_predict = skrub.var("quantiles", quantiles, becomes_default=True)
     quantile_regression = quantile_strategy is not None
     learning_rate = skrub.choose_float(
         0.01, 0.7, default=0.1, log=True, name="learning_rate"

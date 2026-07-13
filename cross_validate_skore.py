@@ -15,6 +15,7 @@ parser.add_argument(
     default=None,
     choices=["multiple_regressors", "tabicl", "binning"],
 )
+parser.add_argument("--hub", action="store_true")
 args = parser.parse_args()
 quantile_strategy = args.quantile_strategy
 n_trials = args.n_trials
@@ -62,9 +63,11 @@ report_name = "__".join(
     [
         "hgb_mean" if quantile_strategy is None else quantile_strategy,
         f"search_{n_trials}" if do_search else "default",
+        "with_temperature_lags"
     ]
 )
 report_path = project.put(report_name, report)
+print(report_path)
 
 # %%
 if do_search:
@@ -88,7 +91,7 @@ fig.write_html(report_path / "user" / "24h.html")
 
 # %%
 # store in hub
-if quantile_strategy is None:
+if args.hub and quantile_strategy is None:
     import dotenv
     import os
 

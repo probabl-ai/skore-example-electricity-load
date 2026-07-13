@@ -1,6 +1,6 @@
 import electricity_load_forecasting as elf
 
-pred = elf.make_data_op()
+pred = elf.make_data_op(quantile_strategy="tabicl")
 g = pred.skb.draw_graph()
 with open("graph.svg", "wb") as f:
     f.write(g.svg)
