@@ -270,15 +270,17 @@ def add_weather(
     return with_weather.collect()
 
 
-def add_calendar_and_holidays(target_time):
+def fetch_holidays(years):
+    return holidays.country_holidays("FR", years=years)
+
+
+def add_calendar_and_holidays(df, holidays_fetcher=fetch_holidays):
     """Add calendar features and holiday information."""
     fr_time = pl.col("target_time").dt.convert_time_zone("Europe/Paris")
-    fr_year_min = target_time.select(fr_time.dt.year().min()).item()
-    fr_year_max = target_time.select(fr_time.dt.year().max()).item()
-    holidays_fr = holidays.country_holidays(
-        "FR", years=range(fr_year_min, fr_year_max + 1)
-    )
-    return target_time.with_columns(
+    fr_year_min = df.select(fr_time.dt.year().min()).item()
+    fr_year_max = df.select(fr_time.dt.year().max()).item()
+    holidays_fr = fetch_holidays(years=range(fr_year_min, fr_year_max + 1))
+    return df.with_columns(
         fr_time.dt.hour().alias("cal_hour_of_day"),
         fr_time.dt.weekday().alias("cal_day_of_week"),
         fr_time.dt.ordinal_day().alias("cal_day_of_year"),
@@ -294,7 +296,13 @@ def add_target_time(df, horizon):
 
 
 def add_features(
-    df, horizon, temperature_only, city_names, load_mw_history, city_weather_fetcher
+    df,
+    horizon,
+    temperature_only,
+    city_names,
+    load_mw_history,
+    city_weather_fetcher,
+    holidays_fetcher,
 ):
     df = add_target_time(df, horizon=horizon)
     df = add_weather(
@@ -304,7 +312,7 @@ def add_features(
         city_names=city_names,
         city_weather_fetcher=city_weather_fetcher,
     )
-    df = add_calendar_and_holidays(df)
+    df = add_calendar_and_holidays(df, holidays_fetcher=holidays_fetcher)
     df = add_lagged_features(df, load_mw_history=load_mw_history, horizon=horizon)
     return df
 
@@ -515,6 +523,7 @@ def make_data_op(
         "Function that loads the weather forecast for a city. "
         "See signature of electricity_load_forecasting.fetch_city_weather."
     )
+    holidays_fetcher = skrub.var("holidays_fetcher", fetch_holidays, becomes_default=True)
     prediction_time = skrub.deferred(time_range)(range_start, range_end)
     load_mw_history = (
         load_mw_history_fetcher()
@@ -584,6 +593,7 @@ def make_data_op(
                 city_names=cities,
                 load_mw_history=load_mw_history,
                 city_weather_fetcher=city_weather_fetcher,
+                holidays_fetcher=holidays_fetcher,
             )
             .skb.set_name(f"feat_{h}h")
             .skb.set_description(
