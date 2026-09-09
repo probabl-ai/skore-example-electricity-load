@@ -663,13 +663,12 @@ def cross_val_predict(data_op, environment=None):
     all_predictions, all_scores = [], []
     for i, split in enumerate(data_op.skb.iter_cv_splits(environment=environment)):
         learner = data_op.skb.make_learner().fit(split["train"])
-        prediction = learner.predict(split["test"])
+        score, prediction = learner.score(split["test"], return_predictions=True)
         all_predictions.append(
             concat_X_y_predictions(
-                split["X_test"], split["y_test"], prediction
+                split["X_test"], split["y_test"], prediction["predict"]
             ).with_columns(split=pl.lit(i)),
         )
-        score = learner.score(split["test"])
         print(split["X_test"]["prediction_time"].min().isoformat())
         print(score)
         all_scores.append(score | {"split": i})
