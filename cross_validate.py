@@ -19,7 +19,7 @@ pred = elf.make_data_op(horizons=(1, 12, 24), quantile_strategy=quantile_strateg
 
 # %%
 # optional: make skrub reports
-# pred.skb.full_report(environment=env, output_dir=output_dir / "full_report")
+# pred.skb.report(environment=env, output_dir=output_dir / "full_report")
 split = pred.skb.train_test_split(environment=env)
 learner = pred.skb.make_learner()
 learner.report(
@@ -69,7 +69,7 @@ index = """
     </head>
     <body>
         <ul>
-            <li><a href="full_report/index.html">data op report</a></li>
+            <li><a href="report/index.html">data op report</a></li>
             <li><a href="fit_report/index.html">data op fit report</a></li>
             <li><a href="predict_report/index.html">data op predict report</a></li>
             <li><a href="predict_single_date_report/index.html">data op predict a single date report</a></li>

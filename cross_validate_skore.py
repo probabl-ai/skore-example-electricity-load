@@ -107,7 +107,7 @@ if args.hub and quantile_strategy is None:
 
 
 # %%
-pred.skb.full_report(environment=env, output_dir=report_path / "user" / "full_report")
+pred.skb.report(environment=env, output_dir=report_path / "user" / "full_report")
 
 # %%
 learner = report.learner_

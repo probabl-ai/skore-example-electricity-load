@@ -14,7 +14,7 @@ study_name = "randomized_search"
 split = pred.skb.train_test_split(environment=env, split_func=elf.train_test_split)
 search = pred.skb.make_randomized_search(
     backend="optuna",
-    n_iter=64,
+    n_iter=100,
     n_jobs=1,
     refit=True,
     storage=storage,

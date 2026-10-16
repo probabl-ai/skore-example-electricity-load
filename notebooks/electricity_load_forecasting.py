@@ -788,7 +788,7 @@ print(pred.skb.describe_param_grid())
 # run this if in an environment where it is possible to open a browser tab,
 # useful for inspecting the whole pipeline:
 #
-# pred.skb.full_report()
+# pred.skb.report()
 
 # %% [markdown]
 # Now that we have configured the scorer, we can check the score of our

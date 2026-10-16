@@ -492,7 +492,7 @@ if __name__ == "__main__":
     }
 
     pred = make_data_op()
-    pred.skb.full_report(env)
+    pred.skb.report(env)
     split = pred.skb.train_test_split(environment=env, split_func=train_test_split)
 
     if do_search:
