@@ -478,7 +478,11 @@ def limit_train_size(df, size=9000, mode=skrub.eval_mode()):
 
 
 def make_data_op(
-    horizons=(1, 12, 24), quantile_strategy=None, quantiles=(0.05, 0.5, 0.95)
+    horizons=(1, 12, 24),
+    quantile_strategy=None,
+    quantiles=(0.05, 0.5, 0.95),
+    tabicl_n_estimators=1,
+    tabicl_binning_train_rows_cap=9000,
 ):
     """
     Prepare a skrub dataop for multiple horizon prediction.
@@ -503,6 +507,27 @@ def make_data_op(
        Use this to override how weather forecasts are loaded. It is called
        with a city name and must return a lazyframe with columns similar to
        those of datasets/weather_paris.parquet.
+
+    tabicl_n_estimators : int, default=1
+        Number of estimators for ``TabICLRegressor`` (ignored unless
+        ``quantile_strategy == "tabicl"``). TabICL ensembles over estimators
+        fit on different row/feature permutations; more estimators costs
+        proportionally more inference compute.
+
+    tabicl_binning_train_rows_cap : int or None, default=9000
+        Only used when ``quantile_strategy`` is ``"tabicl"`` or ``"binning"``;
+        has no effect for ``None`` or ``"multiple_regressors"``, which always
+        train on the full training set of each CV fold regardless of this
+        parameter's value. It exists because those two strategies fit by
+        conditioning directly on the training rows at prediction time
+        (TabICL's in-context tabular learning; the classifier backing
+        ``binning``) rather than classical parametric training, so their
+        inference cost and memory scale with the number of training rows
+        given to them -- capping it (via ``limit_train_size``, keeping only
+        the most recent rows) keeps that bounded as the walk-forward CV's
+        training set grows across folds. Set to None to disable the cap and
+        use the full per-fold training set for these strategies too (expect
+        substantially higher runtime/memory, especially for later folds).
 
     """
     range_start = skrub.var("start").skb.set_description(
@@ -542,9 +567,12 @@ def make_data_op(
         )
     )
 
-    if quantile_strategy in ["tabicl", "binning"]:
-        X = X.skb.apply_func(limit_train_size)
-        y = y.skb.apply_func(limit_train_size)
+    if (
+        quantile_strategy in ["tabicl", "binning"]
+        and tabicl_binning_train_rows_cap is not None
+    ):
+        X = X.skb.apply_func(limit_train_size, size=tabicl_binning_train_rows_cap)
+        y = y.skb.apply_func(limit_train_size, size=tabicl_binning_train_rows_cap)
     temperature_only = skrub.choose_bool(name="temperature_only", default=True)
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
 
@@ -580,7 +608,7 @@ def make_data_op(
     elif quantile_strategy == "tabicl":
         from tabicl import TabICLRegressor
 
-        predictor = TabICLRegressor(n_estimators=1)
+        predictor = TabICLRegressor(n_estimators=tabicl_n_estimators)
         predict_kwargs = {"output_type": "quantiles", "alphas": quantiles_to_predict}
     elif quantile_strategy is None:
         predictor = hgb_regressor
