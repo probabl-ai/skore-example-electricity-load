@@ -8,6 +8,7 @@ parser.add_argument(
     default=None,
     choices=["tabicl", "multiple_regressors", "binning"],
 )
+parser.add_argument("--max_iter", default=1000, type=int)
 args = parser.parse_args()
 
 quantile_strategy = args.quantile_strategy
@@ -15,7 +16,9 @@ quantile_strategy = args.quantile_strategy
 output_dir = elf.get_output_dir("cross_validate_")
 
 env = elf.get_env()
-pred = elf.make_data_op(horizons=(1, 12, 24), quantile_strategy=quantile_strategy)
+pred = elf.make_data_op(
+    horizons=(1, 12, 24), quantile_strategy=quantile_strategy, max_iter=args.max_iter
+)
 
 # %%
 # optional: make skrub reports

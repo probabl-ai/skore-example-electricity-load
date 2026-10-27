@@ -320,6 +320,8 @@ def add_features(
 def concat_horizons(all_pred, quantile_regression=False, mode=skrub.eval_mode()):
     """
     Consolidate predictions of models for different horizons in one dataframe.
+
+    Output columns look like '12h__q_0.05'
     """
     if mode == "fit":
         return all_pred
@@ -464,6 +466,34 @@ def pinball_scorer(estimator, X, y):
     return pinball(y, estimator.predict(X))
 
 
+def coverage(y_true, y_pred, q_low=0.05, q_high=0.95):
+    result = {}
+    for horizon in y_true.columns:
+        low_col = f"{horizon}__q_{q_low}"
+        high_col = f"{horizon}__q_{q_high}"
+        actual = y_true[horizon]
+        inside = (actual >= y_pred[low_col]) & (actual <= y_pred[high_col])
+        result[f"coverage_{q_low}_{q_high}__{horizon}"] = inside.mean()
+    return result
+
+
+def coverage_scorer(estimator, X, y, q_low=0.05, q_high=0.95):
+    return coverage(y, estimator.predict(X), q_low=q_low, q_high=q_high)
+
+
+def mean_width(y_true, y_pred, q_low=0.05, q_high=0.95):
+    result = {}
+    for horizon in y_true.columns:
+        low = y_pred[f"{horizon}__q_{q_low}"]
+        high = y_pred[f"{horizon}__q_{q_high}"]
+        result[f"mean_width_{q_low}_{q_high}__{horizon}"] = (high - low).abs().mean()
+    return result
+
+
+def mean_width_scorer(estimator, X, y, q_low=0.05, q_high=0.95):
+    return mean_width(y, estimator.predict(X), q_low=q_low, q_high=q_high)
+
+
 def tabicl_quantiles_to_df(prediction, quantiles, mode=skrub.eval_mode()):
     if mode == "fit":
         return prediction
@@ -483,6 +513,7 @@ def make_data_op(
     quantiles=(0.05, 0.5, 0.95),
     tabicl_n_estimators=1,
     tabicl_binning_train_rows_cap=9000,
+    max_iter=1000,
 ):
     """
     Prepare a skrub dataop for multiple horizon prediction.
@@ -582,10 +613,12 @@ def make_data_op(
         0.01, 0.7, default=0.1, log=True, name="learning_rate"
     )
     max_leaf_nodes = skrub.choose_int(2, 128, default=31, log=True, name="max_leaf_nodes")
-    min_samples_leaf = skrub.choose_int(2, 64, default=20, log=True, name="min_samples_leaf")
+    min_samples_leaf = skrub.choose_int(
+        2, 64, default=20, log=True, name="min_samples_leaf"
+    )
     hgb_params = dict(
         random_state=0,
-        max_iter=5000,
+        max_iter=max_iter,
         early_stopping=True,
         n_iter_no_change=100,
         max_depth=None,
@@ -662,7 +695,12 @@ def make_data_op(
     )
     if not quantile_regression:
         return multi_horizon_pred
-    return multi_horizon_pred.skb.with_scoring(pinball_scorer)
+    kwargs = {"q_low": min(quantiles), "q_high": max(quantiles)}
+    return (
+        multi_horizon_pred.skb.with_scoring(pinball_scorer)
+        .skb.with_scoring(functools.partial(coverage_scorer, **kwargs))
+        .skb.with_scoring(functools.partial(mean_width_scorer, **kwargs))
+    )
 
 
 def get_env():
