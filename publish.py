@@ -149,7 +149,7 @@ def build_index():
         stat = path.stat()
         rows.append(
             "<tr>"
-            f'<td><a href="{quote(relative.as_posix())}">{html.escape(title)}</a>'
+            f'<td><a href="{quote(relative.as_posix())}" target="_blank" rel="noopener">{html.escape(title)}</a>'
             f"<div class=\"path\">{html.escape(relative.as_posix())}</div></td>"
             f"<td>{datetime.fromtimestamp(stat.st_mtime):%Y-%m-%d %H:%M}</td>"
             f"<td>{human_size(stat.st_size)}</td>"
