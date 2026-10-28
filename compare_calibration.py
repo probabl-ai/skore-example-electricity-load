@@ -818,6 +818,21 @@ def tables(raw_scores, recal_scores, horizons, quantiles):
             for row in interval_rows
         ],
     )
+    mape_rows = []
+    for h in horizons:
+        key = f"neg_mape__{h}h"
+        raw_mape = -r[key] * 100
+        recal_mape = -c[key] * 100
+        mape_rows.append([f"{h}h", raw_mape, recal_mape, recal_mape - raw_mape])
+    mape = table(
+        [
+            "horizon",
+            "MAPE of the median<br>raw (%)",
+            "MAPE of the median<br>recalibrated (%)",
+            "change (points)",
+        ],
+        mape_rows,
+    )
     pinball_rows = []
     for q in list(quantiles):
         key = f"d2_pinball_score__average__q_{q}"
@@ -848,7 +863,7 @@ def tables(raw_scores, recal_scores, horizons, quantiles):
         f"{h}h {name}" for h in horizons for name in ("raw", "recal.")
     ]
     split = table(split_header, per_split)
-    return interval, pinball, split
+    return interval, mape, pinball, split
 
 
 # ---------------------------------------------------------------------------
@@ -879,6 +894,11 @@ coverage {nominal:.2f}).</p>
 <h2>Scores</h2>
 <h3>Interval coverage and width</h3>
 {interval}
+<h3>MAPE of the median prediction</h3>
+<p><code>mean_absolute_percentage_error</code> of each model's median prediction,
+averaged over the CV splits. The last column is the change in percentage points
+(negative is better).</p>
+{mape}
 <h3>d2 pinball score (higher is better), averaged over horizons</h3>
 {pinball}
 <h3>Coverage of the {q_low}&ndash;{q_high} interval for each CV split</h3>
@@ -993,7 +1013,9 @@ def build_report(output_dir):
     n_bins = corrections.filter(pl.col("kind") == "bin").group_by(
         "split", "horizon", "column"
     ).len()["len"].max()
-    interval, pinball, split = tables(raw_scores, recal_scores, horizons, quantiles)
+    interval, mape, pinball, split = tables(
+        raw_scores, recal_scores, horizons, quantiles
+    )
     # how much the recalibration moves the predictions (for the time-series section)
     median_diff, band_diff = 0.0, 0.0
     for h in horizons:
@@ -1058,6 +1080,7 @@ def build_report(output_dir):
             q_high=max(quantiles),
             nominal=max(quantiles) - min(quantiles),
             interval=interval,
+            mape=mape,
             pinball=pinball,
             split=split,
             reading=reading,

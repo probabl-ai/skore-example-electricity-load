@@ -16,7 +16,7 @@ import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
-from sklearn.metrics import mean_pinball_loss
+from sklearn.metrics import mean_absolute_percentage_error, mean_pinball_loss
 from sklearn.model_selection import TimeSeriesSplit
 
 import electricity_load_forecasting as elf
@@ -474,12 +474,13 @@ def plot_shifts(recalibrator):
 def metrics_table(rows):
     header = (
         "<tr><th></th><th>coverage of the 90% interval<br>(target 0.90)</th>"
-        "<th>mean 90% interval width (MW)</th><th>mean pinball loss (all quantiles)</th></tr>"
+        "<th>mean 90% interval width (MW)</th><th>mean pinball loss (all quantiles)</th>"
+        "<th>MAPE of the median (%)</th></tr>"
     )
     body = "".join(
         f"<tr><td>{html.escape(name)}</td><td>{cov:.3f}</td><td>{width:.1f}</td>"
-        f"<td>{pinball:.3f}</td></tr>"
-        for name, cov, width, pinball in rows
+        f"<td>{pinball:.3f}</td><td>{mape:.2f}</td></tr>"
+        for name, cov, width, pinball, mape in rows
     )
     return f"<table>{header}{body}</table>"
 
@@ -615,9 +616,11 @@ diagonal.</p>
 {metrics}
 <p>Coverage and width are computed with <code>electricity_load_forecasting.coverage</code> and
 <code>mean_width</code>. The pinball loss (lower is better) is averaged over all the
-quantile levels. Recalibration restores the nominal coverage at the cost of
-wider intervals (the honest width for this model); the pinball loss, which rewards both
-calibration and sharpness, also improves.</p>
+quantile levels, and the MAPE is that of the median prediction
+(<code>mean_absolute_percentage_error</code>). Recalibration restores the nominal coverage at
+the cost of wider intervals (the honest width for this model); the pinball loss, which rewards
+both calibration and sharpness, also improves, while the MAPE of the median is essentially
+unchanged.</p>
 
 </body>
 </html>
@@ -644,8 +647,12 @@ def main():
     for name, pred in [("raw", raw), ("recalibrated", corrected)]:
         cov, width = interval_metrics(y_test, pred)
         print(name, {q: round(v, 3) for q, v in empirical_coverage(y_test, pred).items()})
-        rows.append((name, cov, width, mean_pinball(y_test, pred)))
-        print(f"{name:13s} coverage={cov:.3f} width={width:.1f} pinball={rows[-1][3]:.3f}")
+        mape = 100 * mean_absolute_percentage_error(y_test, pred["q_0.5"].to_numpy())
+        rows.append((name, cov, width, mean_pinball(y_test, pred), mape))
+        print(
+            f"{name:13s} coverage={cov:.3f} width={width:.1f} "
+            f"pinball={rows[-1][3]:.3f} mape={mape:.2f}%"
+        )
 
     # two weeks, starting about a month into the test period
     start = 24 * 30
