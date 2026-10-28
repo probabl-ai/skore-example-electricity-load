@@ -25,7 +25,6 @@ from quantile_regressor import HGBQuantileRegressor
 
 QUANTILES = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
 Q_LOW, Q_HIGH = 0.05, 0.95
-N_BINS = 8
 OUTPUT = Path("calibration_demo.html")
 
 
@@ -184,7 +183,8 @@ def plot_time_series(time, y, raw, corrected, start, stop):
     return fig
 
 
-def plot_reliability(y, raw, corrected):
+def plot_coverage_curve(y, raw, corrected):
+    """Coverage curve (marginal reliability): one curve in total."""
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -207,9 +207,9 @@ def plot_reliability(y, raw, corrected):
             )
         )
     fig.update_layout(
-        title="Reliability diagram (test set)",
+        title="Coverage curve (marginal reliability), test set",
         xaxis_title="nominal quantile level",
-        yaxis_title="observed fraction of y_true below the prediction",
+        yaxis_title="observed fraction of y_true at or below the prediction",
         xaxis=dict(range=[0, 1]),
         yaxis=dict(range=[0, 1], scaleanchor="x", scaleratio=1),
         width=620,
@@ -218,34 +218,168 @@ def plot_reliability(y, raw, corrected):
     return fig
 
 
-def plot_reliability_by_level(y, raw, corrected, column="q_0.95", n_bins=N_BINS):
-    """Coverage of one quantile, as a function of the predicted value itself."""
-    tau = float(column.removeprefix("q_"))
-    p = raw[column].to_numpy()
+def binned_quantiles(y, prediction, tau, n_bins):
+    """Equal-count bins of the prediction: mean prediction and estimated
+    tau-quantile of y in the bin.
+
+    The latter is "mean prediction + tau-quantile of the residuals (y - p)" in
+    the bin, rather than the plain tau-quantile of y: the predictions vary
+    inside a bin, which would pull the plain quantile of y away from the
+    diagonal (outwards in the tails) even for a calibrated model.
+    """
+    p = prediction.to_numpy()
     edges = np.unique(np.quantile(p, np.linspace(0, 1, n_bins + 1)))
     bin_ids = np.searchsorted(edges[1:-1], p, side="right")
-    fig = go.Figure()
-    fig.add_hline(y=tau, line=dict(color=COLORS["ideal"], dash="dash"))
-    for name, pred in [("raw", raw), ("corrected", corrected)]:
-        q = pred[column].to_numpy()
-        xs, ys = [], []
-        for b in np.unique(bin_ids):
-            in_bin = bin_ids == b
-            xs.append(float(p[in_bin].mean()))
-            ys.append(float((y[in_bin] <= q[in_bin]).mean()))
-        fig.add_trace(
-            go.Scatter(
-                x=xs, y=ys, mode="lines+markers", line=dict(color=COLORS[name]), name=name
-            )
-        )
-    fig.update_layout(
-        title=f"Reliability of {column} by bin of raw predicted value (test set)",
-        xaxis_title=f"raw {column} prediction (MW)",
-        yaxis_title=f"observed fraction of y_true below {column}",
-        yaxis=dict(range=[0, 1]),
-        height=450,
+    xs, quantiles = [], []
+    for b in np.unique(bin_ids):
+        in_bin = bin_ids == b
+        mean_p = float(p[in_bin].mean())
+        xs.append(mean_p)
+        quantiles.append(mean_p + float(np.quantile(y[in_bin] - p[in_bin], tau)))
+    return xs, quantiles
+
+
+def isotonic_quantiles(prediction, y, tau):
+    """Isotonic (PAV) estimate of the tau-quantile of y given the prediction.
+
+    The cases are sorted by prediction and adjacent blocks are pooled whenever
+    their tau-quantile would decrease, so the result is a monotone step
+    function of the prediction. There is no bin width to choose: the blocks are
+    where the data put them. Cases with the same prediction are pooled first (a
+    step function must give them the same value).
+
+    Returns the mean prediction and the tau-quantile of each block.
+    """
+    order = np.argsort(prediction, kind="stable")
+    p = np.asarray(prediction, dtype=float)[order]
+    obs = np.asarray(y, dtype=float)[order]
+    starts = np.flatnonzero(np.r_[True, p[1:] != p[:-1]])
+    ends = np.r_[starts[1:], len(p)]
+    blocks = []  # stack of [start, end, tau-quantile of the block]
+    for start, end in zip(starts, ends):
+        blocks.append([int(start), int(end), float(np.quantile(obs[start:end], tau))])
+        while len(blocks) >= 2 and blocks[-2][2] > blocks[-1][2]:
+            first = blocks[-2][0]
+            last = blocks[-1][1]
+            blocks[-2:] = [
+                [first, last, float(np.quantile(obs[first:last], tau))]
+            ]
+    xs = [float(p[start:end].mean()) for start, end, _ in blocks]
+    quantiles = [value for _, _, value in blocks]
+    return xs, quantiles
+
+
+def panel_range(values):
+    lo, hi = float(np.min(values)), float(np.max(values))
+    margin = 0.02 * (hi - lo)
+    return [lo - margin, hi + margin]
+
+
+def _conditional_reliability(y, raw, corrected, estimate, title, step):
+    """One panel per quantile: predicted value vs estimated conditional quantile.
+
+    ``estimate(prediction, tau)`` returns (mean predictions, quantiles). ``step``
+    selects the style: a monotone step line (isotonic) or dots (bins).
+    """
+    quantiles = levels(raw)
+    n_cols = 4
+    n_rows = -(-len(quantiles) // n_cols)
+    fig = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        subplot_titles=[f"q_{q}" for q in quantiles.values()],
+        vertical_spacing=0.14,
+        horizontal_spacing=0.06,
     )
+    fig.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="lines",
+            line=dict(color=COLORS["ideal"], dash="dash"),
+            name="perfect calibration (actual = predicted)",
+        ),
+        row=1,
+        col=1,
+    )
+    for i, (column, tau) in enumerate(quantiles.items()):
+        row, col = divmod(i, n_cols)
+        row, col = row + 1, col + 1
+        curves = {
+            name: estimate(pred[column], tau)
+            for name, pred in [("raw", raw), ("corrected", corrected)]
+        }
+        bounds = panel_range([v for xs, qs in curves.values() for v in xs + qs])
+        fig.add_shape(
+            type="line",
+            x0=bounds[0],
+            x1=bounds[1],
+            y0=bounds[0],
+            y1=bounds[1],
+            line=dict(color=COLORS["ideal"], dash="dash"),
+            row=row,
+            col=col,
+        )
+        for name, (xs, qs) in curves.items():
+            if step:
+                trace = go.Scatter(
+                    x=xs,
+                    y=qs,
+                    mode="lines",
+                    line=dict(color=COLORS[name], width=2, shape="hv"),
+                    name=name,
+                    showlegend=i == 0,
+                )
+            else:
+                trace = go.Scatter(
+                    x=xs,
+                    y=qs,
+                    mode="markers",
+                    marker=dict(color=COLORS[name], size=7),
+                    name=name,
+                    showlegend=i == 0,
+                )
+            fig.add_trace(trace, row=row, col=col)
+        # 1:1 scale, so that the diagonal is at 45 degrees
+        x_axis = "x" if i == 0 else f"x{i + 1}"
+        fig.update_xaxes(
+            title_text="predicted value (MW)", range=bounds, row=row, col=col
+        )
+        fig.update_yaxes(
+            range=bounds,
+            scaleanchor=x_axis,
+            scaleratio=1,
+            row=row,
+            col=col,
+        )
+        if col == 1:
+            fig.update_yaxes(title_text="estimated &tau;-quantile of y (MW)", row=row, col=col)
+    fig.update_layout(height=360 * n_rows + 130, title=title)
     return fig
+
+
+def plot_conditional_binned(y, raw, corrected, n_bins):
+    """Conditional reliability curves estimated with equal-count bins."""
+    return _conditional_reliability(
+        y,
+        raw,
+        corrected,
+        lambda prediction, tau: binned_quantiles(y, prediction, tau, n_bins),
+        title="Conditional reliability (equal-count bins), test set",
+        step=False,
+    )
+
+
+def plot_conditional_isotonic(y, raw, corrected):
+    """Conditional reliability curves estimated by isotonic regression (PAV)."""
+    return _conditional_reliability(
+        y,
+        raw,
+        corrected,
+        lambda prediction, tau: isotonic_quantiles(prediction, y, tau),
+        title="Conditional reliability (isotonic / PAV), test set",
+        step=True,
+    )
 
 
 def plot_shifts(recalibrator):
@@ -371,7 +505,7 @@ median</b>, more so for high predicted loads (factor 0.95 at 40&nbsp;MW down to 
 to simulate a model that under-estimates uncertainty, mostly at peaks.</p>
 <p>The recalibrator uses a walk-forward CV with 4 test folds of 90 days and a 7-day gap
 between train and test. Its out-of-fold models must be trained on enough data to be
-representative of the final model (here, at least ~2 years, so that the yearly cycle is seen).
+representative of the final model (here, at least about 1.8 years, so that the yearly cycle is seen).
 If the first folds are trained on very little data, their errors are larger than those of the
 final model, and the correction over-shoots (we observed 94% coverage for a 90% interval with a
 too-short initial training window).</p>
@@ -390,15 +524,38 @@ is wider where needed.</p>
 {timeseries}
 
 <h2>Reliability diagrams</h2>
-<p>A reliability diagram compares each nominal quantile level with the fraction of
-observed values actually below the predicted quantile. The dashed diagonal is perfect
-calibration. Curves below the diagonal in the upper half (and above it in the lower half)
-indicate over-confident intervals.</p>
-{reliability}
-<p>The same check for one quantile only, but split by the predicted value: this is the
-quantity the recalibrator corrects. The raw model is close to the target 0.95 at low loads
-but falls well short at high loads; the corrected model is close to the target everywhere.</p>
-{reliability_by_level}
+<p>Both plots below are called reliability diagrams, but they check different properties.</p>
+
+<h3>Coverage curve (marginal reliability)</h3>
+<p>For each nominal level &tau;, the <em>empirical coverage</em>: the fraction of observed
+values at or below the &tau;-quantile forecast, pooled over all the test cases and plotted
+against &tau;. The dashed diagonal is perfect calibration. This is the marginal check: it
+averages over all forecast situations, so a model can be on the diagonal on average while
+being miscalibrated in particular situations (e.g. at high load), with errors cancelling
+out. Points below the diagonal above &tau; = 0.5 (and above it below 0.5) mean intervals
+that are too narrow.</p>
+{coverage_curve}
+
+<h3>Conditional reliability curves, binned (one panel per quantile)</h3>
+<p>One panel per quantile level &tau;. The test cases are split into {n_bins} bins of equal
+size by predicted value (each model's own predictions); in each bin, x is the mean prediction
+and y is the mean prediction plus the &tau;-quantile of the residuals <code>y &minus; p</code>
+in the bin. Using the residuals (rather than the plain quantile of <code>y</code> in the bin)
+removes an artefact of the predictions varying inside a bin, so a perfectly calibrated model
+lies exactly on the dashed 45&deg; diagonal (actual = predicted); the axes are on the same
+scale (1:1).</p>
+{conditional_bins}
+
+<h3>Conditional reliability curves, isotonic / PAV (one panel per quantile)</h3>
+<p>The same check, with the conditional &tau;-quantile estimated by isotonic regression: sort
+the cases by prediction, then repeatedly pool adjacent blocks whenever their &tau;-quantile
+would decrease. The result is a monotone step function whose blocks are placed by the data,
+with no bin width to choose. Cases with the same prediction are pooled (a step function gives
+them the same value). Again, a perfectly calibrated model lies on the dashed 45&deg;
+diagonal.</p>
+{conditional_isotonic}
+
+
 
 <h2>Metrics on the test set</h2>
 {metrics}
@@ -425,7 +582,7 @@ def main():
     )
     # walk-forward CV: 4 test folds of 90 days, 7-day gap before each
     cv = TimeSeriesSplit(n_splits=4, test_size=24 * 90, gap=24 * 7)
-    recalibrator = Recalibrator(base, cv=cv, n_bins=N_BINS).fit(X_train, y_train)
+    recalibrator = Recalibrator(base, cv=cv).fit(X_train, y_train)
     raw = recalibrator.estimator_.predict(X_test)
     corrected = recalibrator.predict(X_test)
 
@@ -442,19 +599,22 @@ def main():
     figures = {
         "shifts": plot_shifts(recalibrator),
         "timeseries": plot_time_series(time_test, y_test, raw, corrected, start, stop),
-        "reliability": plot_reliability(y_test, raw, corrected),
-        "reliability_by_level": plot_reliability_by_level(y_test, raw, corrected),
+        "coverage_curve": plot_coverage_curve(y_test, raw, corrected),
+        "conditional_bins": plot_conditional_binned(
+            y_test, raw, corrected, n_bins=recalibrator.n_bins
+        ),
+        "conditional_isotonic": plot_conditional_isotonic(y_test, raw, corrected),
     }
     parts = {}
     for i, (key, fig) in enumerate(figures.items()):
         parts[key] = fig.to_html(
             full_html=False,
             include_plotlyjs=True if i == 0 else False,
-            default_width="100%" if key != "reliability" else None,
+            default_width="100%" if key != "coverage_curve" else None,
         )
     OUTPUT.write_text(
         PAGE.format(
-            n_bins=N_BINS,
+            n_bins=recalibrator.n_bins,
             n_days=len(y) // 24,
             train_pct=round(100 * n_train / len(y)),
             quantiles=", ".join(map(str, QUANTILES)),

@@ -1,13 +1,9 @@
 import pprint
 import electricity_load_forecasting as elf
 
-import skrub._data_ops._utils as u
-u.has_graphviz = lambda: False   # pretend graphviz is missing
-
 env = elf.get_env()
-# quantile_strategy = "multiple_regressors"
-quantile_strategy = None
-pred = elf.make_data_op(quantile_strategy=quantile_strategy)
+quantile_strategy = "multiple_regressors"
+pred = elf.make_data_op(quantile_strategy=quantile_strategy, recalibrate=True)
 pred.skb.report(env)
 
 # split = pred.skb.train_test_split(env)

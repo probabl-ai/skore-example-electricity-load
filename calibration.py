@@ -1,15 +1,18 @@
 import re
+import warnings
 
 import numpy as np
 import polars as pl
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import RidgeCV
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import SplineTransformer
 
-# Hourly rows: 7 days between train and test, as in
-# electricity_load_forecasting.TimeSeriesSplitter.
+# Default inner CV when none is given (hourly rows: 7 days between train and
+# test, as in electricity_load_forecasting.TimeSeriesSplitter, which is what
+# make_data_op uses instead).
 _DEFAULT_GAP_ROWS = 24 * 7
 
 
@@ -33,7 +36,9 @@ class Recalibrator(RegressorMixin, BaseEstimator):
        ``y``; measure the actual tau-quantile of the residuals ``y - p``, in MW.
        This is the shift needed to make that bin calibrated.
     3. Fit a smooth model (spline transformer with 5 basis functions + RidgeCV,
-       weighted by bin size) mapping the predicted value to the shift.
+       weighted by bin size, normalized to a mean of 1) mapping the predicted
+       value to the shift. If ties leave fewer than 5 distinct bins, a constant
+       shift is used instead (with a warning).
     4. Refit ``estimator`` on all the data. At prediction time, add the learned
        shift (a function of each predicted value) to its predictions, then sort
        the quantiles so that they do not cross.
@@ -45,8 +50,15 @@ class Recalibrator(RegressorMixin, BaseEstimator):
     cv : cross-validation splitter, default=None
         Used to obtain out-of-fold predictions. It must respect the temporal
         order. Default: ``TimeSeriesSplit(n_splits=5, gap=24 * 7)``, assuming
-        hourly rows.
-    n_bins : int, default=8
+        hourly rows. ``fit`` can pass extra arguments to its ``split`` method
+        (``split_kwargs``).
+    n_last_folds : int or None, default=None
+        If not None, only calibrate on the out-of-fold predictions of the last
+        ``n_last_folds`` folds of ``cv``, so that the correction follows recent
+        behaviour rather than the whole history (useful if calibration drifts
+        over time). The other folds are not fit, which also saves time. Note
+        that the last fold of a walk-forward ``cv`` may be shorter than the others.
+    n_bins : int, default=10
         Number of bins of predicted values. Keep it small: estimating a tail
         quantile such as 0.95 needs several hundred points per bin to be
         reasonably stable. At least 5 (the number of spline basis functions).
@@ -54,6 +66,12 @@ class Recalibrator(RegressorMixin, BaseEstimator):
     Attributes
     ----------
     estimator_ : the estimator refit on all the data.
+    n_folds_used_ : number of cv folds used for the calibration.
+    oof_ : polars DataFrame
+        The out-of-fold data the calibration is learned from: the predicted
+        quantiles (columns ``q_<level>``), ``y``, ``row`` (position in the
+        ``X`` given to ``fit``) and ``inner_fold`` (index of the fold in
+        ``cv.split``).
     quantile_levels_ : dict {column name: quantile level}
     shift_models_ : dict {column name: fitted model, predicted value -> shift}
     bin_summary_ : dict {column name: polars DataFrame}
@@ -62,27 +80,51 @@ class Recalibrator(RegressorMixin, BaseEstimator):
         correction.
     """
 
-    def __init__(self, estimator, cv=None, n_bins=8):
+    def __init__(self, estimator, cv=None, n_bins=10, n_last_folds=None):
         self.estimator = estimator
         self.cv = cv
         self.n_bins = n_bins
+        self.n_last_folds = n_last_folds
 
-    def fit(self, X, y):
+    def fit(self, X, y, split_kwargs=None):
+        """Fit the estimator and its correction.
+
+        ``split_kwargs`` is a dict of extra keyword arguments for
+        ``cv.split(X, y, **split_kwargs)``, for example the prediction times
+        when ``X`` is an array that does not contain them.
+        """
         if self.n_bins < 5:
             raise ValueError(f"n_bins must be at least 5, got {self.n_bins}")
+        if self.n_last_folds is not None and self.n_last_folds < 1:
+            raise ValueError(f"n_last_folds must be at least 1, got {self.n_last_folds}")
         X = np.asarray(X)
         y = np.asarray(y, dtype=float).ravel()
         cv = self.cv if self.cv is not None else _default_cv()
 
-        y_oof, pred_oof = [], []
-        for train, test in cv.split(X, y):
+        folds = list(cv.split(X, y, **(split_kwargs or {})))
+        n_skipped = 0
+        if self.n_last_folds is not None:
+            n_skipped = max(len(folds) - self.n_last_folds, 0)
+            folds = folds[n_skipped:]
+        self.n_folds_used_ = len(folds)
+
+        y_oof, pred_oof, row_oof, fold_oof = [], [], [], []
+        for fold, (train, test) in enumerate(folds, start=n_skipped):
             fold_estimator = clone(self.estimator).fit(X[train], y[train])
             pred_oof.append(fold_estimator.predict(X[test]))
             y_oof.append(y[test])
+            row_oof.append(np.asarray(test))
+            fold_oof.append(np.full(len(test), fold))
         if not y_oof:
             raise ValueError("cv produced no splits")
         pred_oof = pl.concat(pred_oof, how="vertical")
         y_oof = np.concatenate(y_oof)
+        # keep the out-of-fold data, for inspection
+        self.oof_ = pred_oof.with_columns(
+            row=pl.Series(np.concatenate(row_oof)),
+            inner_fold=pl.Series(np.concatenate(fold_oof)),
+            y=pl.Series(y_oof),
+        )
 
         self.quantile_levels_ = _quantile_levels(pred_oof)
         self.shift_models_ = {}
@@ -113,19 +155,32 @@ class Recalibrator(RegressorMixin, BaseEstimator):
             )
         summary = pl.DataFrame(rows)
         if len(summary) < 5:
-            raise ValueError(
-                f"Only {len(summary)} distinct bins for quantile {tau}, need at "
-                "least 5. Reduce the number of ties or increase n_bins."
+            # many identical predictions (e.g. a saturated model) can leave too
+            # few distinct bins for the spline: fall back to a constant shift
+            # rather than failing in the middle of a long CV
+            warnings.warn(
+                f"Only {len(summary)} distinct bins for quantile {tau} (many tied "
+                "predictions): using a constant shift.",
+                stacklevel=2,
             )
+            model = DummyRegressor(
+                strategy="constant", constant=float(np.quantile(residuals, tau))
+            ).fit(summary[["mean_prediction"]].to_numpy(), summary["shift"].to_numpy())
+            return model, summary
         # 5 basis functions: n_knots + degree - 1 = 3 + 3 - 1
         model = make_pipeline(
             SplineTransformer(n_knots=3, degree=3, extrapolation="constant"),
             RidgeCV(alphas=np.logspace(-3, 3, 13)),
         )
+        # Weights proportional to the bin sizes, but normalized to a mean of 1:
+        # the ridge penalty is not scaled by the weights, so with raw counts
+        # (hundreds or thousands) the alpha grid would be ineffective, and the
+        # regularization would depend on the size of the training set.
+        weights = summary["count"].to_numpy() / summary["count"].mean()
         model.fit(
             summary["mean_prediction"].to_numpy()[:, None],
             summary["shift"].to_numpy(),
-            ridgecv__sample_weight=summary["count"].to_numpy(),
+            ridgecv__sample_weight=weights,
         )
         return model, summary
 
@@ -138,7 +193,8 @@ class Recalibrator(RegressorMixin, BaseEstimator):
         # shifts are learned independently per quantile: avoid crossing
         order = np.argsort([self.quantile_levels_[c] for c in pred.columns])
         corrected[:, order] = np.sort(corrected[:, order], axis=1)
-        return pl.DataFrame(corrected, schema=pred.columns)
+        # explicit orientation: polars guesses it for a square array
+        return pl.DataFrame(corrected, schema=pred.columns, orient="row")
 
 
 def _default_cv():

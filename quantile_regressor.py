@@ -31,7 +31,9 @@ class HGBQuantileRegressor(RegressorMixin, BaseEstimator):
     def predict(self, X):
         result = np.asarray([e.predict(X) for e in self.estimators_.values()])
         result.sort(axis=0)
-        return pl.DataFrame(result, schema=[f"q_{q}" for q in self.quantiles_])
+        return pl.DataFrame(
+            result, schema=[f"q_{q}" for q in self.quantiles_], orient="col"
+        )
 
 
 class BinnedQuantileRegressor(BaseEstimator, RegressorMixin):

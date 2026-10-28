@@ -14,6 +14,7 @@ from sklearn.metrics import mean_absolute_percentage_error, d2_pinball_score
 from sklearn.ensemble import HistGradientBoostingRegressor
 import plotly.graph_objects as go
 
+from calibration import Recalibrator
 from quantile_regressor import BinnedQuantileRegressor, HGBQuantileRegressor
 
 _ALL_CITIES = (
@@ -356,35 +357,52 @@ def _split_indices(X, test_start_date, test_length_days):
 
 
 class TimeSeriesSplitter:
-    def split(self, X, y=None, groups=None):
-        min_train_days = 365 * 2
-        test_length_days = 24 * 7  # 24 weeks
-        test_start_dates = pl.date_range(
-            X["prediction_time"].min()
-            + datetime.timedelta(days=min_train_days + _TRAIN_TEST_GAP_DAYS),
-            X["prediction_time"].max(),
-            interval=datetime.timedelta(days=test_length_days),
-            closed="left",
-            eager=True,
+    """
+    Walk-forward CV with a gap of ``_TRAIN_TEST_GAP_DAYS`` between train and test.
+
+    The test folds are aligned towards the end of the time range: they are
+    consecutive, all ``test_length_days`` long (the default, 13 weeks, is about
+    3 months), and the last one ends at the last prediction time. The training set
+    of each fold is all the data that precedes its test fold by more than the
+    gap. The number of folds is the largest such that the first training set
+    spans at least ``min_train_days``; it can be longer, by less than
+    ``test_length_days``.
+
+    ``split`` reads the prediction times from the ``prediction_time`` column of
+    ``X``, or uses its ``prediction_time`` argument if provided (for example when
+    ``X`` is a numpy array of features from which the time column was dropped).
+    """
+
+    def __init__(self, min_train_days=365 * 2, test_length_days=7 * 13):
+        self.min_train_days = min_train_days
+        self.test_length_days = test_length_days
+
+    def split(self, X, y=None, groups=None, prediction_time=None):
+        if prediction_time is not None:
+            X = pl.DataFrame({"prediction_time": prediction_time})
+        times = X["prediction_time"]
+        # the test folds are half-open intervals, the last one must include the
+        # last prediction time: it ends one time step after it
+        time_steps = times.unique().sort().diff().drop_nulls()
+        if not len(time_steps):
+            return
+        end = times.max() + time_steps.min()
+        test_length = datetime.timedelta(days=self.test_length_days)
+        available = (
+            end
+            - times.min()
+            - datetime.timedelta(days=_TRAIN_TEST_GAP_DAYS + self.min_train_days)
         )
-        for test_start in test_start_dates:
-            train, test = _split_indices(X, test_start, test_length_days=test_length_days)
+        n_splits = max(available // test_length, 0)
+        for i in range(n_splits, 0, -1):
+            train, test = _split_indices(
+                X, end - i * test_length, test_length_days=self.test_length_days
+            )
             if len(train) and len(test):
                 yield train, test
 
-    def get_n_splits(self, X, y=None, groups=None):
-        return len(list(self.split(X, y)))
-
-
-def train_test_split(X, y, test_start_date="2025-01-01"):
-    if isinstance(test_start_date, str):
-        test_start_date = datetime.datetime.fromisoformat(test_start_date).astimezone(
-            datetime.UTC
-        )
-    train, test = _split_indices(
-        X, test_start_date=test_start_date, test_length_days=24 * 7
-    )
-    return X[train], X[test], y[train], y[test]
+    def get_n_splits(self, X, y=None, groups=None, prediction_time=None):
+        return len(list(self.split(X, y, prediction_time=prediction_time)))
 
 
 def transpose_pred(prediction_date, prediction):
@@ -494,6 +512,19 @@ def mean_width_scorer(estimator, X, y, q_low=0.05, q_high=0.95):
     return mean_width(y, estimator.predict(X), q_low=q_low, q_high=q_high)
 
 
+def _recalibrator_cv():
+    """
+    Inner walk-forward CV of the Recalibrator, on the training set of an outer
+    fold (the prediction times are passed with ``split_kwargs``). Same splitter,
+    test fold length and gap as the outer CV, but starting after 1 year of
+    training data instead of 2, so that the smallest outer training set still
+    gets several inner splits. Caveat: the model of the first inner splits (1
+    year of data) is weaker than the final one, which makes the measured errors
+    a bit larger.
+    """
+    return TimeSeriesSplitter(min_train_days=365)
+
+
 def tabicl_quantiles_to_df(prediction, quantiles, mode=skrub.eval_mode()):
     if mode == "fit":
         return prediction
@@ -514,6 +545,9 @@ def make_data_op(
     tabicl_n_estimators=1,
     tabicl_binning_train_rows_cap=9000,
     max_iter=1000,
+    recalibrate=False,
+    recalibrator_n_bins=10,
+    recalibrator_n_last_folds=None,
 ):
     """
     Prepare a skrub dataop for multiple horizon prediction.
@@ -560,7 +594,27 @@ def make_data_op(
         use the full per-fold training set for these strategies too (expect
         substantially higher runtime/memory, especially for later folds).
 
+    recalibrate : bool, default=False
+        If True, wrap the quantile regressor of each horizon in a
+        ``calibration.Recalibrator``, which corrects its predicted quantiles
+        based on their out-of-fold reliability (see that class). Only
+        supported for ``quantile_strategy == "multiple_regressors"``. The
+        recalibrator's inner CV is ``_recalibrator_cv()``.
+
+    recalibrator_n_bins : int, default=10
+        ``n_bins`` of the recalibrator (ignored unless ``recalibrate``).
+
+    recalibrator_n_last_folds : int or None, default=None
+        ``n_last_folds`` of the recalibrator (ignored unless ``recalibrate``):
+        only calibrate on the out-of-fold predictions of the last this many
+        inner CV folds of each training set (3 months each).
+
     """
+    if recalibrate and quantile_strategy != "multiple_regressors":
+        raise ValueError(
+            "recalibrate=True is only supported with "
+            f"quantile_strategy='multiple_regressors', got {quantile_strategy!r}"
+        )
     range_start = skrub.var("start").skb.set_description(
         "The first time at which a prediction is made."
     )
@@ -633,11 +687,22 @@ def make_data_op(
     hgb_q_regressor = HGBQuantileRegressor(quantiles=quantiles, hgb_params=hgb_params)
     binned_q_regressor = BinnedQuantileRegressor()
     predict_kwargs = None
+    fit_kwargs = None
     if quantile_strategy == "binning":
         predictor = binned_q_regressor
         predict_kwargs = {"quantiles": quantiles_to_predict}
     elif quantile_strategy == "multiple_regressors":
         predictor = hgb_q_regressor
+        if recalibrate:
+            predictor = Recalibrator(
+                hgb_q_regressor,
+                cv=_recalibrator_cv(),
+                n_bins=recalibrator_n_bins,
+                n_last_folds=recalibrator_n_last_folds,
+            )
+            # the inner CV needs the prediction times of the training rows, which
+            # are not in the numpy array of features that the estimator receives
+            fit_kwargs = {"split_kwargs": {"prediction_time": X["prediction_time"]}}
     elif quantile_strategy == "tabicl":
         from tabicl import TabICLRegressor
 
@@ -667,7 +732,12 @@ def make_data_op(
             .skb.drop(["prediction_time", "target_time"])
             .skb.apply(skrub.ToFloat())
             .to_numpy()
-            .skb.apply(predictor, y=y[f"{h}h"], predict_kwargs=predict_kwargs)
+            .skb.apply(
+                predictor,
+                y=y[f"{h}h"],
+                fit_kwargs=fit_kwargs,
+                predict_kwargs=predict_kwargs,
+            )
         )
         if quantile_strategy == "tabicl":
             h_pred = h_pred.skb.apply_func(tabicl_quantiles_to_df, quantiles_to_predict)
