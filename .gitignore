@@ -76,3 +76,7 @@ jupyterlite_contents
 # python virtual environment
 .venv
 venv
+
+# misc
+
+TABICL_COMPARISON.md
