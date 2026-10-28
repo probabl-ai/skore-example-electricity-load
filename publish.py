@@ -20,8 +20,9 @@ def parse_args():
         "sources",
         nargs="*",
         type=Path,
-        help="HTML files or result directories to publish. With no source, only "
-        "the index is regenerated.",
+        help="HTML files or result directories to publish. A file named "
+        "index.html is published as docs/<parent-directory>/index.html. With no "
+        "source, only the index is regenerated.",
     )
     parser.add_argument(
         "--name",
@@ -31,6 +32,11 @@ def parse_args():
         "--all",
         action="store_true",
         help="when a source is a directory, copy every file instead of only HTML",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="replace a destination that already exists",
     )
     parser.add_argument(
         "--no-index",
@@ -47,12 +53,18 @@ def check_name(name):
     return path
 
 
-def copy_source(source, name, copy_all):
-    if not source.exists():
-        raise SystemExit(f"no such file or directory: {source}")
+def destination_for(source, name):
+    if name:
+        return DOCS / check_name(name)
+    if source.is_file() and source.name == "index.html":
+        parent = source.parent.name
+        if not parent:
+            raise SystemExit(f"cannot derive a name from {source}; use --name")
+        return DOCS / parent / "index.html"
+    return DOCS / source.name
 
-    destination = DOCS / (check_name(name) if name else source.name)
 
+def copy_source(source, destination, copy_all):
     if source.is_dir():
         if destination.exists():
             if destination.is_dir():
@@ -62,7 +74,12 @@ def copy_source(source, name, copy_all):
         if copy_all:
             shutil.copytree(source, destination)
         else:
-            for path in source.rglob("*.html"):
+            htmls = list(source.rglob("*.html"))
+            if not htmls:
+                raise SystemExit(
+                    f"no HTML files in {source}; use --all to copy everything"
+                )
+            for path in htmls:
                 relative = path.relative_to(source)
                 target = destination / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -92,13 +109,33 @@ def human_size(size):
 
 
 def report_files():
+    def walk(directory):
+        index = directory / "index.html"
+        if index.exists():
+            return [index]
+        files = [
+            path
+            for path in directory.glob("*.html")
+            if not SKIP_HTML.match(path.name)
+        ]
+        for child in directory.iterdir():
+            if child.is_dir() and not child.name.startswith("."):
+                files.extend(walk(child))
+        return files
+
     files = []
-    for path in DOCS.rglob("*.html"):
-        if DOCS / "index.html" == path or SKIP_HTML.match(path.name):
+    for path in DOCS.iterdir():
+        if path.name.startswith("."):
             continue
-        if any(part.startswith(".") for part in path.relative_to(DOCS).parts):
-            continue
-        files.append(path)
+        if path.is_file():
+            if (
+                path.suffix == ".html"
+                and path.name != "index.html"
+                and not SKIP_HTML.match(path.name)
+            ):
+                files.append(path)
+        elif path.is_dir():
+            files.extend(walk(path))
     return sorted(files, key=lambda p: (-p.stat().st_mtime, str(p)))
 
 
@@ -157,8 +194,33 @@ def main():
     DOCS.mkdir(exist_ok=True)
     (DOCS / ".nojekyll").touch()
 
+    plan = []
+    seen = {}
     for source in args.sources:
-        destination = copy_source(source, args.name, args.all)
+        if not source.exists():
+            raise SystemExit(f"no such file or directory: {source}")
+        destination = destination_for(source, args.name)
+        if destination == DOCS / "index.html":
+            raise SystemExit(
+                f"{source} would overwrite the landing page at {destination}; "
+                "use --name to publish it elsewhere"
+            )
+        if destination in seen:
+            raise SystemExit(
+                f"{seen[destination]} and {source} would both publish to "
+                f"{destination}; use --name one at a time"
+            )
+        seen[destination] = source
+        if destination.exists() and not args.force:
+            raise SystemExit(
+                f"destination already exists: {destination}\n"
+                "use --name NAME to publish under a different name, or --force "
+                "to replace it"
+            )
+        plan.append((source, destination))
+
+    for source, destination in plan:
+        copy_source(source, destination, args.all)
         print(f"copied {source} -> {destination}")
 
     if not args.no_index:

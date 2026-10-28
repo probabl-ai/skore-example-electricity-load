@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>electricity_load_forecasting</title>
+
+<!-- Prism.js (v1.29.0, MIT license) is vendored in prism-1.29.0/ so that this
+     page is fully standalone and does not require a network connection.
+     See prism-1.29.0/README.md and prism-1.29.0/LICENSE. -->
+<style>
+code[class*=language-],pre[class*=language-]{color:#000;background:0 0;text-shadow:0 1px #fff;font-family:Consolas,Monaco,'Andale Mono','Ubuntu Mono',monospace;font-size:1em;text-align:left;white-space:pre;word-spacing:normal;word-break:normal;word-wrap:normal;line-height:1.5;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-hyphens:none;-moz-hyphens:none;-ms-hyphens:none;hyphens:none}code[class*=language-] ::-moz-selection,code[class*=language-]::-moz-selection,pre[class*=language-] ::-moz-selection,pre[class*=language-]::-moz-selection{text-shadow:none;background:#b3d4fc}code[class*=language-] ::selection,code[class*=language-]::selection,pre[class*=language-] ::selection,pre[class*=language-]::selection{text-shadow:none;background:#b3d4fc}@media print{code[class*=language-],pre[class*=language-]{text-shadow:none}}pre[class*=language-]{padding:1em;margin:.5em 0;overflow:auto}:not(pre)>code[class*=language-],pre[class*=language-]{background:#f5f2f0}:not(pre)>code[class*=language-]{padding:.1em;border-radius:.3em;white-space:normal}.token.cdata,.token.comment,.token.doctype,.token.prolog{color:#708090}.token.punctuation{color:#999}.token.namespace{opacity:.7}.token.boolean,.token.constant,.token.deleted,.token.number,.token.property,.token.symbol,.token.tag{color:#905}.token.attr-name,.token.builtin,.token.char,.token.inserted,.token.selector,.token.string{color:#690}.language-css .token.string,.style .token.string,.token.entity,.token.operator,.token.url{color:#9a6e3a;background:hsla(0,0%,100%,.5)}.token.atrule,.token.attr-value,.token.keyword{color:#07a}.token.class-name,.token.function{color:#dd4a68}.token.important,.token.regex,.token.variable{color:#e90}.token.bold,.token.important{font-weight:700}.token.italic{font-style:italic}.token.entity{cursor:help}
+pre[class*=language-].line-numbers{position:relative;padding-left:3.8em;counter-reset:linenumber}pre[class*=language-].line-numbers>code{position:relative;white-space:inherit}.line-numbers .line-numbers-rows{position:absolute;pointer-events:none;top:0;font-size:100%;left:-3.8em;width:3em;letter-spacing:-1px;border-right:1px solid #999;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none}.line-numbers-rows>span{display:block;counter-increment:linenumber}.line-numbers-rows>span:before{content:counter(linenumber);color:#999;display:block;padding-right:.8em;text-align:right}
+pre[data-line]{position:relative;padding:1em 0 1em 3em}.line-highlight{position:absolute;left:0;right:0;padding:inherit 0;margin-top:1em;background:hsla(24,20%,50%,.08);background:linear-gradient(to right,hsla(24,20%,50%,.1) 70%,hsla(24,20%,50%,0));pointer-events:none;line-height:inherit;white-space:pre}@media print{.line-highlight{-webkit-print-color-adjust:exact;color-adjust:exact}}.line-highlight:before,.line-highlight[data-end]:after{content:attr(data-start);position:absolute;top:.4em;left:.6em;min-width:1em;padding:0 .5em;background-color:hsla(24,20%,50%,.4);color:#f4f1ef;font:bold 65%/1.5 sans-serif;text-align:center;vertical-align:.3em;border-radius:999px;text-shadow:none;box-shadow:0 1px #fff}.line-highlight[data-end]:after{content:attr(data-end);top:auto;bottom:.4em}.line-numbers .line-highlight:after,.line-numbers .line-highlight:before{content:none}pre[id].linkable-line-numbers span.line-numbers-rows{pointer-events:all}pre[id].linkable-line-numbers span.line-numbers-rows>span:before{cursor:pointer}pre[id].linkable-line-numbers span.line-numbers-rows>span:hover:before{background-color:rgba(128,128,128,.2)}
+</style>
+
+<style>
+  body { font-family: sans-serif; max-width: 100%; margin: 2em auto; padding: 2em; }
+  pre[class*="language-"] { font-size: 0.95em; }
+</style>
+</head>
+<body>
+
+    <h1><code>/home/jerome/workspace/repos/skore-example-electricity-load/electricity_load_forecasting.py</code></h1>
+
+<pre id="code-container" class="line-numbers" data-line=""><code class="language-python" id="code">import functools
+import re
+import datetime
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+import holidays
+import polars as pl
+from polars import selectors as cs
+import skrub
+from sklearn.metrics import mean_absolute_percentage_error, d2_pinball_score
+from sklearn.ensemble import HistGradientBoostingRegressor
+import plotly.graph_objects as go
+
+from calibration import Recalibrator
+from quantile_regressor import BinnedQuantileRegressor, HGBQuantileRegressor
+
+_ALL_CITIES = (
+    &#34;paris&#34;,
+    &#34;lyon&#34;,
+    &#34;marseille&#34;,
+    &#34;toulouse&#34;,
+    &#34;lille&#34;,
+    &#34;limoges&#34;,
+    &#34;nantes&#34;,
+    &#34;strasbourg&#34;,
+    &#34;brest&#34;,
+    &#34;bayonne&#34;,
+)
+_TRAIN_TEST_GAP_DAYS = 7
+
+
+def project_dir():
+    return Path(__file__).parent
+
+
+def data_dir():
+    return project_dir() / &#34;datasets&#34;
+
+
+def get_output_dir(prefix=&#34;&#34;):
+    output_dir = (
+        project_dir() / &#34;results&#34; / f&#34;{prefix}{datetime.datetime.now().isoformat()}&#34;
+    )
+    output_dir.mkdir(parents=True)
+    (output_dir / &#34;metadata.json&#34;).write_text(
+        json.dumps(
+            {
+                &#34;commit&#34;: last_commit_hash(),
+                &#34;date&#34;: datetime.datetime.now().isoformat(),
+                &#34;argv&#34;: sys.argv,
+            }
+        ),
+        &#34;utf-8&#34;,
+    )
+    return output_dir
+
+
+def last_commit_hash():
+    # TODO: either create a commit in a dedicated branch or assert that working
+    # tree is clean
+    return subprocess.run(
+        [&#34;git&#34;, &#34;rev-parse&#34;, &#34;HEAD&#34;],
+        cwd=str(project_dir()),
+        check=True,
+        encoding=&#34;utf-8&#34;,
+        capture_output=True,
+    ).stdout.strip()
+
+
+def fetch_load_mw_history():
+    &#34;&#34;&#34;
+    Fetch the historical electricity grid load in MW.
+
+    Returns a dataframe with columns [time, load_mw].
+    &#34;&#34;&#34;
+    return (
+        pl.scan_csv(data_dir() / &#34;Total Load - Day Ahead*.csv&#34;, null_values=[&#34;N/A&#34;, &#34;-&#34;])
+        .drop_nulls()
+        .select(
+            pl.col(&#34;Time (UTC)&#34;)
+            .str.split(by=&#34; - &#34;)
+            .list.first()
+            .str.to_datetime(&#34;%d.%m.%Y %H:%M&#34;, time_zone=&#34;UTC&#34;)
+            .alias(&#34;time&#34;),
+            pl.col(&#34;Actual Total Load [MW] - BZN|FR&#34;).cast(pl.Float32).alias(&#34;load_mw&#34;),
+        )
+        .collect()
+    )
+
+
+def time_range(start, end=None):
+    &#34;&#34;&#34;
+    Build a 1-hour-spaced datetime range from start to end.
+
+    Times are truncated to the nearest full hour.
+
+    If end is None, we get a time range containing only the start time.
+    &#34;&#34;&#34;
+    if end is None:
+        end = start
+    if isinstance(start, str):
+        start = datetime.datetime.fromisoformat(start)
+    if isinstance(end, str):
+        end = datetime.datetime.fromisoformat(end)
+    return pl.DataFrame().with_columns(
+        pl.datetime_range(
+            start=start,
+            end=end,
+            time_zone=&#34;UTC&#34;,
+            interval=&#34;1h&#34;,
+        )
+        .dt.truncate(&#34;1h&#34;)
+        .alias(&#34;time&#34;),
+    )
+
+
+def resample(load_mw_history):
+    &#34;&#34;&#34;
+    Resample the load history on a regular time grid to have exactly 1 row every hour.
+
+    Parts where sampling was finer (eg every 15 minutes) are averaged over 1h
+    intervals, and if some hours are missing a corresponding row is inserted
+    containing explicit NULL values (rather than a missing row).
+    &#34;&#34;&#34;
+    averaged = load_mw_history.group_by(pl.col(&#34;time&#34;).dt.truncate(&#34;1h&#34;)).agg(
+        pl.col(&#34;load_mw&#34;).mean()
+    )
+    all_times = averaged[&#34;time&#34;]
+    return time_range(
+        all_times.min(), all_times.max() + datetime.timedelta(hours=48)
+    ).join(averaged, on=&#34;time&#34;, how=&#34;left&#34;, maintain_order=&#34;left&#34;)
+
+
+def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):
+    &#34;&#34;&#34;
+    Compute input and target variables.
+
+    For fitting (and validation), this builds the targets y by applying
+    appropriate shifts to the historical data. The targets y and prediction
+    times X are aligned, and rows with missing ground truth are dropped.
+    Returns a dictionary with keys X and y, ready to be split for
+    cross-validation or used to fit a model.
+
+    For prediction, simply returns `prediction_time` in a dictionary with a
+    single key X.
+    &#34;&#34;&#34;
+    if isinstance(horizons, int):
+        single_horizon = True
+        horizons = (horizons,)
+    else:
+        single_horizon = False
+    prediction_time = prediction_time.rename({&#34;time&#34;: &#34;prediction_time&#34;})
+    if mode in (&#34;fit&#34;, &#34;fit_transform&#34;, &#34;preview&#34;):
+        # For those modes we need the ground truth; restrict to rows for which
+        # there is y
+        load = load_mw_history.select(
+            pl.col(&#34;time&#34;),
+            *[pl.col(&#34;load_mw&#34;).shift(-h).alias(f&#34;{h}h&#34;) for h in horizons],
+        ).drop_nulls()
+        X_y = prediction_time.join(
+            load,
+            left_on=&#34;prediction_time&#34;,
+            right_on=&#34;time&#34;,
+            how=&#34;inner&#34;,
+            maintain_order=&#34;left&#34;,
+        )
+        return {
+            &#34;X&#34;: X_y.select(pl.col(&#34;prediction_time&#34;)),
+            &#34;y&#34;: (
+                X_y[f&#34;{horizons[0]}h&#34;] if single_horizon else X_y.drop(&#34;prediction_time&#34;)
+            ),
+        }
+    else:
+        # In predict mode there is no y and we return unmodified query
+        return {&#34;X&#34;: prediction_time}
+
+
+def add_lagged_features(target_time, load_mw_history, horizon):
+    &#34;&#34;&#34;
+    Build lagged features for the given horizon.
+
+    horizon must be &lt;= 24 (hours). Only features that would be available at
+    prediction time, ie that require data at least horizon hours in the past,
+    are created.
+    &#34;&#34;&#34;
+    assert horizon &lt;= 24
+    lags = (
+        pl.col(&#34;load_mw&#34;).shift(lag).alias(f&#34;lag_{lag}&#34;)
+        for lag in list(range(horizon, 24)) + [24, 24 * 2, 24 * 7]
+    )
+
+    rolling_lags = sorted(set((horizon, 24)))
+    rolling_widths = (24, 24 * 7)
+
+    def rolling(e, name):
+        return [
+            e.rolling(
+                index_column=&#34;time&#34;, period=f&#34;{width}h&#34;, offset=f&#34;{-width -lag}h&#34;
+            ).alias(f&#34;lag_{lag}_width_{width}_{name}&#34;)
+            for lag in rolling_lags
+            for width in rolling_widths
+        ]
+
+    medians = rolling(pl.col(&#34;load_mw&#34;).median(), &#34;median&#34;)
+    iqr = rolling(
+        (pl.col(&#34;load_mw&#34;).quantile(0.75) - pl.col(&#34;load_mw&#34;).quantile(0.25)), &#34;iqr&#34;
+    )
+    features = load_mw_history.select(pl.col(&#34;time&#34;), *lags, *medians, *iqr)
+    return target_time.join(
+        features,
+        left_on=&#34;target_time&#34;,
+        right_on=&#34;time&#34;,
+        how=&#34;left&#34;,
+        maintain_order=&#34;left&#34;,
+    )
+
+
+def fetch_city_weather(city):
+    return pl.scan_parquet(data_dir() / f&#34;weather_{city}.parquet&#34;)
+
+
+def add_weather(
+    target_time,
+    horizon,
+    city_names=&#34;all&#34;,
+    temperature_only=False,
+    city_weather_fetcher=fetch_city_weather,
+):
+    &#34;&#34;&#34;Add weather information for the required cities.&#34;&#34;&#34;
+    # NOTE: here ideally we should retrieve the exact weather forecast
+    # corresponding to the horizon. But we do not have it available in the
+    # historical data. We just take the only forecast we have.
+    del horizon
+    if isinstance(city_names, str):
+        assert city_names == &#34;all&#34;
+        city_names = _ALL_CITIES
+    with_weather = target_time.lazy()
+
+    rolls = [(lag * 3, 3) for lag in range(8)]
+    rolling_means = [
+        cs.matches(&#34;.*temperature.*&#34;)
+        .as_expr()
+        .mean()
+        .rolling(index_column=&#34;time&#34;, period=f&#34;{width}h&#34;, offset=f&#34;{-width -lag}h&#34;)
+        .name.map(f&#34;{{}}_lag_{lag}_width_{width}&#34;.format)
+        for lag, width in rolls
+    ]
+
+    for city in city_names:
+        with_weather = with_weather.join(
+            city_weather_fetcher(city)
+            .with_columns(pl.col(&#34;time&#34;).dt.cast_time_unit(&#34;us&#34;))
+            .select(
+                (pl.col(&#34;time&#34;), cs.matches(&#34;.*temperature.*&#34;))
+                if temperature_only
+                else pl.all()
+            )
+            .with_columns(*rolling_means)
+            .select(
+                pl.col(&#34;time&#34;),
+                (~cs.by_name(&#34;time&#34;)).as_expr().name.map(f&#34;weather_{{}}_{city}&#34;.format),
+            ),
+            left_on=&#34;target_time&#34;,
+            right_on=&#34;time&#34;,
+            how=&#34;left&#34;,
+            maintain_order=&#34;left&#34;,
+        )
+    return with_weather.collect()
+
+
+def fetch_holidays(years):
+    return holidays.country_holidays(&#34;FR&#34;, years=years)
+
+
+def add_calendar_and_holidays(df, holidays_fetcher=fetch_holidays):
+    &#34;&#34;&#34;Add calendar features and holiday information.&#34;&#34;&#34;
+    fr_time = pl.col(&#34;target_time&#34;).dt.convert_time_zone(&#34;Europe/Paris&#34;)
+    fr_year_min = df.select(fr_time.dt.year().min()).item()
+    fr_year_max = df.select(fr_time.dt.year().max()).item()
+    holidays_fr = fetch_holidays(years=range(fr_year_min, fr_year_max + 1))
+    return df.with_columns(
+        fr_time.dt.hour().alias(&#34;cal_hour_of_day&#34;),
+        fr_time.dt.weekday().alias(&#34;cal_day_of_week&#34;),
+        fr_time.dt.ordinal_day().alias(&#34;cal_day_of_year&#34;),
+        fr_time.dt.year().alias(&#34;cal_year&#34;),
+        fr_time.dt.date().is_in(holidays_fr.keys()).alias(&#34;cal_is_holiday&#34;),
+    )
+
+
+def add_target_time(df, horizon):
+    return df.with_columns(
+        (pl.col(&#34;prediction_time&#34;) + pl.duration(hours=horizon)).alias(&#34;target_time&#34;)
+    )
+
+
+def add_features(
+    df,
+    horizon,
+    temperature_only,
+    city_names,
+    load_mw_history,
+    city_weather_fetcher,
+    holidays_fetcher,
+):
+    df = add_target_time(df, horizon=horizon)
+    df = add_weather(
+        df,
+        horizon=horizon,
+        temperature_only=temperature_only,
+        city_names=city_names,
+        city_weather_fetcher=city_weather_fetcher,
+    )
+    df = add_calendar_and_holidays(df, holidays_fetcher=holidays_fetcher)
+    df = add_lagged_features(df, load_mw_history=load_mw_history, horizon=horizon)
+    return df
+
+
+def concat_horizons(all_pred, quantile_regression=False, mode=skrub.eval_mode()):
+    &#34;&#34;&#34;
+    Consolidate predictions of models for different horizons in one dataframe.
+
+    Output columns look like &#39;12h__q_0.05&#39;
+    &#34;&#34;&#34;
+    if mode == &#34;fit&#34;:
+        return all_pred
+    if not quantile_regression:
+        return pl.DataFrame({f&#34;{h}h&#34;: v for h, v in all_pred.items()})
+    return pl.concat(
+        [v.rename(f&#34;{h}h__{{}}&#34;.format) for h, v in all_pred.items()], how=&#34;horizontal&#34;
+    )
+
+
+def _split_indices(X, test_start_date, test_length_days):
+    train = (
+        X.with_row_index()
+        .filter(
+            pl.col(&#34;prediction_time&#34;)
+            &lt; test_start_date - datetime.timedelta(_TRAIN_TEST_GAP_DAYS)
+        )[&#34;index&#34;]
+        .to_numpy()
+    )
+    test = (
+        X.with_row_index()
+        .filter(
+            (pl.col(&#34;prediction_time&#34;) &gt;= test_start_date)
+            &amp; (
+                pl.col(&#34;prediction_time&#34;)
+                &lt; test_start_date + datetime.timedelta(days=test_length_days)
+            )
+        )[&#34;index&#34;]
+        .to_numpy()
+    )
+    return train, test
+
+
+class TimeSeriesSplitter:
+    &#34;&#34;&#34;
+    Walk-forward CV with a gap of ``_TRAIN_TEST_GAP_DAYS`` between train and test.
+
+    The test folds are aligned towards the end of the time range: they are
+    consecutive, all ``test_length_days`` long (the default, 13 weeks, is about
+    3 months), and the last one ends at the last prediction time. The training set
+    of each fold is all the data that precedes its test fold by more than the
+    gap. The number of folds is the largest such that the first training set
+    spans at least ``min_train_days``; it can be longer, by less than
+    ``test_length_days``.
+
+    ``split`` reads the prediction times from the ``prediction_time`` column of
+    ``X``, or uses its ``prediction_time`` argument if provided (for example when
+    ``X`` is a numpy array of features from which the time column was dropped).
+    &#34;&#34;&#34;
+
+    def __init__(self, min_train_days=365 * 2, test_length_days=7 * 13):
+        self.min_train_days = min_train_days
+        self.test_length_days = test_length_days
+
+    def split(self, X, y=None, groups=None, prediction_time=None):
+        if prediction_time is not None:
+            X = pl.DataFrame({&#34;prediction_time&#34;: prediction_time})
+        times = X[&#34;prediction_time&#34;]
+        # the test folds are half-open intervals, the last one must include the
+        # last prediction time: it ends one time step after it
+        time_steps = times.unique().sort().diff().drop_nulls()
+        if not len(time_steps):
+            return
+        end = times.max() + time_steps.min()
+        test_length = datetime.timedelta(days=self.test_length_days)
+        available = (
+            end
+            - times.min()
+            - datetime.timedelta(days=_TRAIN_TEST_GAP_DAYS + self.min_train_days)
+        )
+        n_splits = max(available // test_length, 0)
+        for i in range(n_splits, 0, -1):
+            train, test = _split_indices(
+                X, end - i * test_length, test_length_days=self.test_length_days
+            )
+            if len(train) and len(test):
+                yield train, test
+
+    def get_n_splits(self, X, y=None, groups=None, prediction_time=None):
+        return len(list(self.split(X, y, prediction_time=prediction_time)))
+
+
+def transpose_pred(prediction_date, prediction):
+    date = [
+        prediction_date + datetime.timedelta(hours=int(c.removesuffix(&#34;h&#34;)))
+        for c in prediction.columns
+    ]
+    load = prediction.row()
+    return pl.DataFrame({&#34;time&#34;: date, &#34;load_mw&#34;: load})
+
+
+def post_process(pred, prediction_time, range_end, quantile_regression):
+    if range_end is not None:
+        return pred
+    pred_time = prediction_time[&#34;time&#34;].to_list()[0]
+    horizons, q = zip(
+        *(re.match(r&#34;(\d+)h(?:__(q_.*))?&#34;, c).groups() for c in pred.columns)
+    )
+    date = [pred_time + datetime.timedelta(hours=int(h)) for h in horizons]
+    load = pred.row()
+    if not quantile_regression:
+        return pl.DataFrame({&#34;time&#34;: date, &#34;load_mw&#34;: load})
+    return pl.DataFrame({&#34;time&#34;: date, &#34;load_mw&#34;: load, &#34;quantile&#34;: q}).pivot(
+        on=&#34;quantile&#34;, values=&#34;load_mw&#34;, maintain_order=True, sort_columns=False
+    )
+
+
+def split_by_quantile(pred):
+    quantile_cols = {}
+    for c in pred.columns:
+        quantile_cols.setdefault(c.split(&#34;__&#34;)[1], []).append(c)
+    return {
+        q: pred.select(cols).rename(lambda c: c.split(&#34;__&#34;)[0])
+        for q, cols in quantile_cols.items()
+    }
+
+
+def neg_mape(y_true, y_pred, quantile_regression=False):
+    if quantile_regression:
+        quantile_predictions = split_by_quantile(y_pred)
+        scores = {}
+        for q, q_pred in quantile_predictions.items():
+            q_neg_mape = neg_mape(y_true, q_pred, quantile_regression=False)
+            scores.update({f&#34;{k}__{q}&#34;: v for k, v in q_neg_mape.items()})
+            if q == &#34;q_0.5&#34;:
+                # Pick the median if available for comparison with non-quantile
+                # models
+                scores.update(q_neg_mape)
+        return scores
+    average = mean_absolute_percentage_error(y_true, y_pred)
+    detail = mean_absolute_percentage_error(y_true, y_pred, multioutput=&#34;raw_values&#34;)
+    return {&#34;neg_mape__average&#34;: -average} | {
+        f&#34;neg_mape__{c}&#34;: -float(s) for c, s in zip(y_true.columns, detail)
+    }
+
+
+def neg_mape_scorer(estimator, X, y, quantile_regression=False):
+    return neg_mape(y, estimator.predict(X), quantile_regression=quantile_regression)
+
+
+def pinball(y_true, y_pred):
+    quantile_predictions = split_by_quantile(y_pred)
+    scores = {}
+    for q, q_pred in quantile_predictions.items():
+        scores[f&#34;d2_pinball_score__average__{q}&#34;] = d2_pinball_score(
+            y_true, q_pred, alpha=float(q.removeprefix(&#34;q_&#34;))
+        )
+        detail = d2_pinball_score(y_true, q_pred, multioutput=&#34;raw_values&#34;)
+        scores.update(
+            {
+                f&#34;d2_pinball_score__{c}__{q}&#34;: float(s)
+                for c, s in zip(y_true.columns, detail)
+            }
+        )
+    return scores
+
+
+def pinball_scorer(estimator, X, y):
+    return pinball(y, estimator.predict(X))
+
+
+def coverage(y_true, y_pred, q_low=0.05, q_high=0.95):
+    result = {}
+    for horizon in y_true.columns:
+        low_col = f&#34;{horizon}__q_{q_low}&#34;
+        high_col = f&#34;{horizon}__q_{q_high}&#34;
+        actual = y_true[horizon]
+        inside = (actual &gt;= y_pred[low_col]) &amp; (actual &lt;= y_pred[high_col])
+        result[f&#34;coverage_{q_low}_{q_high}__{horizon}&#34;] = inside.mean()
+    return result
+
+
+def coverage_scorer(estimator, X, y, q_low=0.05, q_high=0.95):
+    return coverage(y, estimator.predict(X), q_low=q_low, q_high=q_high)
+
+
+def mean_width(y_true, y_pred, q_low=0.05, q_high=0.95):
+    result = {}
+    for horizon in y_true.columns:
+        low = y_pred[f&#34;{horizon}__q_{q_low}&#34;]
+        high = y_pred[f&#34;{horizon}__q_{q_high}&#34;]
+        result[f&#34;mean_width_{q_low}_{q_high}__{horizon}&#34;] = (high - low).abs().mean()
+    return result
+
+
+def mean_width_scorer(estimator, X, y, q_low=0.05, q_high=0.95):
+    return mean_width(y, estimator.predict(X), q_low=q_low, q_high=q_high)
+
+
+def _recalibrator_cv():
+    &#34;&#34;&#34;
+    Inner walk-forward CV of the Recalibrator, on the training set of an outer
+    fold (the prediction times are passed with ``split_kwargs``). Same splitter,
+    test fold length and gap as the outer CV, but starting after 1 year of
+    training data instead of 2, so that the smallest outer training set still
+    gets several inner splits. Caveat: the model of the first inner splits (1
+    year of data) is weaker than the final one, which makes the measured errors
+    a bit larger.
+    &#34;&#34;&#34;
+    return TimeSeriesSplitter(min_train_days=365)
+
+
+def tabicl_quantiles_to_df(prediction, quantiles, mode=skrub.eval_mode()):
+    if mode == &#34;fit&#34;:
+        return prediction
+    return pl.DataFrame(prediction, schema=[f&#34;q_{q}&#34; for q in quantiles])
+
+
+def limit_train_size(df, size=9000, mode=skrub.eval_mode()):
+    if mode in (&#34;fit&#34;, &#34;fit_transform&#34;, &#34;preview&#34;):
+        return df.tail(size)
+    else:
+        return df
+
+
+def make_data_op(
+    horizons=(1, 12, 24),
+    quantile_strategy=None,
+    quantiles=(0.05, 0.5, 0.95),
+    tabicl_n_estimators=1,
+    tabicl_binning_train_rows_cap=9000,
+    max_iter=1000,
+    recalibrate=False,
+    recalibrator_n_bins=10,
+    recalibrator_n_last_folds=None,
+):
+    &#34;&#34;&#34;
+    Prepare a skrub dataop for multiple horizon prediction.
+
+    The dataop contains the following inputs (expected keys in the environment
+    passed to the learner):
+
+    - start : datetime or ISO datetime string
+        The start of the date range to predict
+
+    - end : datetime or ISO datetime string
+        The end of the date range to predict
+
+    start and end correspond to the time at which the prediction is made. the
+    prediction is made about that time + the horizon.
+
+    - load_mw_history_fetcher : function, optional
+       Use this to override how historical data is loaded. It is called with no
+       arguments and must return a dataframe with columns time, load_mw.
+
+    - city_weather_fetcher : function, optional
+       Use this to override how weather forecasts are loaded. It is called
+       with a city name and must return a lazyframe with columns similar to
+       those of datasets/weather_paris.parquet.
+
+    tabicl_n_estimators : int, default=1
+        Number of estimators for ``TabICLRegressor`` (ignored unless
+        ``quantile_strategy == &#34;tabicl&#34;``). TabICL ensembles over estimators
+        fit on different row/feature permutations; more estimators costs
+        proportionally more inference compute.
+
+    tabicl_binning_train_rows_cap : int or None, default=9000
+        Only used when ``quantile_strategy`` is ``&#34;tabicl&#34;`` or ``&#34;binning&#34;``;
+        has no effect for ``None`` or ``&#34;multiple_regressors&#34;``, which always
+        train on the full training set of each CV fold regardless of this
+        parameter&#39;s value. It exists because those two strategies fit by
+        conditioning directly on the training rows at prediction time
+        (TabICL&#39;s in-context tabular learning; the classifier backing
+        ``binning``) rather than classical parametric training, so their
+        inference cost and memory scale with the number of training rows
+        given to them -- capping it (via ``limit_train_size``, keeping only
+        the most recent rows) keeps that bounded as the walk-forward CV&#39;s
+        training set grows across folds. Set to None to disable the cap and
+        use the full per-fold training set for these strategies too (expect
+        substantially higher runtime/memory, especially for later folds).
+
+    recalibrate : bool, default=False
+        If True, wrap the quantile regressor of each horizon in a
+        ``calibration.Recalibrator``, which corrects its predicted quantiles
+        based on their out-of-fold reliability (see that class). Only
+        supported for ``quantile_strategy == &#34;multiple_regressors&#34;``. The
+        recalibrator&#39;s inner CV is ``_recalibrator_cv()``.
+
+    recalibrator_n_bins : int, default=10
+        ``n_bins`` of the recalibrator (ignored unless ``recalibrate``).
+
+    recalibrator_n_last_folds : int or None, default=None
+        ``n_last_folds`` of the recalibrator (ignored unless ``recalibrate``):
+        only calibrate on the out-of-fold predictions of the last this many
+        inner CV folds of each training set (3 months each).
+
+    &#34;&#34;&#34;
+    if recalibrate and quantile_strategy != &#34;multiple_regressors&#34;:
+        raise ValueError(
+            &#34;recalibrate=True is only supported with &#34;
+            f&#34;quantile_strategy=&#39;multiple_regressors&#39;, got {quantile_strategy!r}&#34;
+        )
+    range_start = skrub.var(&#34;start&#34;).skb.set_description(
+        &#34;The first time at which a prediction is made.&#34;
+    )
+    range_end = skrub.var(&#34;end&#34;, None, becomes_default=True).skb.set_description(
+        &#34;The last time at which a prediction is made.&#34;
+    )
+    load_mw_history_fetcher = skrub.var(
+        &#34;load_mw_history_fetcher&#34;, fetch_load_mw_history, becomes_default=True
+    ).skb.set_description(
+        &#34;Function that loads the historical load data. &#34;
+        &#34;See signature of electricity_load_forecasting.fetch_load_mw_history.&#34;
+    )
+    city_weather_fetcher = skrub.var(
+        &#34;city_weather_fetcher&#34;, fetch_city_weather, becomes_default=True
+    ).skb.set_description(
+        &#34;Function that loads the weather forecast for a city. &#34;
+        &#34;See signature of electricity_load_forecasting.fetch_city_weather.&#34;
+    )
+    holidays_fetcher = skrub.var(&#34;holidays_fetcher&#34;, fetch_holidays, becomes_default=True)
+    prediction_time = skrub.deferred(time_range)(range_start, range_end)
+    load_mw_history = (
+        load_mw_history_fetcher()
+        .skb.apply_func(resample)
+        .skb.set_description(&#34;Historical load data on a regular 1h time grid.&#34;)
+    )
+    X_y = prediction_time.skb.apply_func(get_X_y, load_mw_history, horizons)
+    X = X_y[&#34;X&#34;].skb.mark_as_X(cv=TimeSeriesSplitter())
+    y = (
+        X_y[&#34;y&#34;]
+        .skb.mark_as_y()
+        .skb.set_description(
+            &#34;Actual loads at different horizons. The column Xh corresponds to &#34;
+            &#34;what happened X hours after the date in the &#34;
+            &#34;corresponding &#39;prediction_time&#39; column of X.&#34;
+        )
+    )
+
+    if (
+        quantile_strategy in [&#34;tabicl&#34;, &#34;binning&#34;]
+        and tabicl_binning_train_rows_cap is not None
+    ):
+        X = X.skb.apply_func(limit_train_size, size=tabicl_binning_train_rows_cap)
+        y = y.skb.apply_func(limit_train_size, size=tabicl_binning_train_rows_cap)
+    temperature_only = skrub.choose_bool(name=&#34;temperature_only&#34;, default=True)
+    cities = skrub.choose_from([&#34;all&#34;, [&#34;paris&#34;, &#34;lyon&#34;, &#34;marseille&#34;]], name=&#34;cities&#34;)
+
+    quantiles_to_predict = skrub.var(&#34;quantiles&#34;, quantiles, becomes_default=True)
+    quantile_regression = quantile_strategy is not None
+    learning_rate = skrub.choose_float(
+        0.01, 0.7, default=0.1, log=True, name=&#34;learning_rate&#34;
+    )
+    max_leaf_nodes = skrub.choose_int(2, 128, default=31, log=True, name=&#34;max_leaf_nodes&#34;)
+    min_samples_leaf = skrub.choose_int(
+        2, 64, default=20, log=True, name=&#34;min_samples_leaf&#34;
+    )
+    hgb_params = dict(
+        random_state=0,
+        max_iter=max_iter,
+        early_stopping=True,
+        n_iter_no_change=100,
+        max_depth=None,
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
+        min_samples_leaf=min_samples_leaf,
+    )
+    hgb_regressor = HistGradientBoostingRegressor(
+        loss=skrub.choose_from([&#34;squared_error&#34;, &#34;poisson&#34;, &#34;gamma&#34;], name=&#34;loss&#34;),
+        **hgb_params,
+    )
+    hgb_q_regressor = HGBQuantileRegressor(quantiles=quantiles, hgb_params=hgb_params)
+    binned_q_regressor = BinnedQuantileRegressor()
+    predict_kwargs = None
+    fit_kwargs = None
+    if quantile_strategy == &#34;binning&#34;:
+        predictor = binned_q_regressor
+        predict_kwargs = {&#34;quantiles&#34;: quantiles_to_predict}
+    elif quantile_strategy == &#34;multiple_regressors&#34;:
+        predictor = hgb_q_regressor
+        if recalibrate:
+            predictor = Recalibrator(
+                hgb_q_regressor,
+                cv=_recalibrator_cv(),
+                n_bins=recalibrator_n_bins,
+                n_last_folds=recalibrator_n_last_folds,
+            )
+            # the inner CV needs the prediction times of the training rows, which
+            # are not in the numpy array of features that the estimator receives
+            fit_kwargs = {&#34;split_kwargs&#34;: {&#34;prediction_time&#34;: X[&#34;prediction_time&#34;]}}
+    elif quantile_strategy == &#34;tabicl&#34;:
+        from tabicl import TabICLRegressor
+
+        predictor = TabICLRegressor(n_estimators=tabicl_n_estimators)
+        predict_kwargs = {&#34;output_type&#34;: &#34;quantiles&#34;, &#34;alphas&#34;: quantiles_to_predict}
+    elif quantile_strategy is None:
+        predictor = hgb_regressor
+    else:
+        raise ValueError(f&#34;Bad quantile strategy: {quantile_strategy!r}&#34;)
+    all_pred = {}
+    for h in horizons:
+        h_pred = (
+            X.skb.apply_func(
+                add_features,
+                horizon=h,
+                temperature_only=temperature_only,
+                city_names=cities,
+                load_mw_history=load_mw_history,
+                city_weather_fetcher=city_weather_fetcher,
+                holidays_fetcher=holidays_fetcher,
+            )
+            .skb.set_name(f&#34;feat_{h}h&#34;)
+            .skb.set_description(
+                f&#34;Features to use for predicting the {h}h horizon. &#34;
+                f&#34;They only use data available at least {h} hours before the target time.&#34;
+            )
+            .skb.drop([&#34;prediction_time&#34;, &#34;target_time&#34;])
+            .skb.apply(skrub.ToFloat())
+            .to_numpy()
+            .skb.apply(
+                predictor,
+                y=y[f&#34;{h}h&#34;],
+                fit_kwargs=fit_kwargs,
+                predict_kwargs=predict_kwargs,
+            )
+        )
+        if quantile_strategy == &#34;tabicl&#34;:
+            h_pred = h_pred.skb.apply_func(tabicl_quantiles_to_df, quantiles_to_predict)
+        all_pred[h] = h_pred.skb.set_name(f&#34;pred_{h}h&#34;).skb.set_description(
+            f&#34;Predicted load {h} hours after the &#39;prediction_time&#39; in X.&#34;
+        )
+
+    multi_horizon_pred = (
+        skrub.deferred(concat_horizons)(all_pred, quantile_regression=quantile_regression)
+        .skb.set_name(&#34;pred_multi_horizon&#34;)
+        .skb.set_description(
+            &#34;Output of the pipeline: predicted loads at multiple horizons. &#34;
+            &#34;Column Xh contains the predicted load X hours after &#34;
+            &#34;the &#39;prediction_time&#39; in X.&#34;
+        )
+        .skb.apply_func(
+            post_process,
+            prediction_time,
+            range_end,
+            quantile_regression=quantile_regression,
+        )
+        .skb.with_scoring(
+            functools.partial(neg_mape_scorer, quantile_regression=quantile_regression)
+        )
+    )
+    if not quantile_regression:
+        return multi_horizon_pred
+    kwargs = {&#34;q_low&#34;: min(quantiles), &#34;q_high&#34;: max(quantiles)}
+    return (
+        multi_horizon_pred.skb.with_scoring(pinball_scorer)
+        .skb.with_scoring(functools.partial(coverage_scorer, **kwargs))
+        .skb.with_scoring(functools.partial(mean_width_scorer, **kwargs))
+    )
+
+
+def get_env():
+    &#34;&#34;&#34;
+    Default environment for experimenting with / validating the dataop defined
+    in this module.
+    &#34;&#34;&#34;
+    return {
+        &#34;start&#34;: &#34;2021-03-23&#34;,
+        &#34;end&#34;: &#34;2025-05-31&#34;,
+    }
+
+
+def concat_X_y_predictions(X_test, y_test, prediction):
+    return pl.concat(
+        [
+            X_test,
+            y_test,
+            prediction.rename(&#34;pred_{}&#34;.format),
+        ],
+        how=&#34;horizontal&#34;,
+    )
+
+
+def cross_val_predict(data_op, environment=None):
+    &#34;&#34;&#34;
+    Get cross-validated predictions for different horizons.
+    &#34;&#34;&#34;
+    all_predictions, all_scores = [], []
+    for i, split in enumerate(data_op.skb.iter_cv_splits(environment=environment)):
+        learner = data_op.skb.make_learner().fit(split[&#34;train&#34;])
+        score, prediction = learner.score(split[&#34;test&#34;], return_predictions=True)
+        all_predictions.append(
+            concat_X_y_predictions(
+                split[&#34;X_test&#34;], split[&#34;y_test&#34;], prediction[&#34;predict&#34;]
+            ).with_columns(split=pl.lit(i)),
+        )
+        print(split[&#34;X_test&#34;][&#34;prediction_time&#34;].min().isoformat())
+        print(score)
+        all_scores.append(score | {&#34;split&#34;: i})
+    all_predictions = pl.concat(all_predictions, how=&#34;vertical&#34;)
+    all_scores = pl.DataFrame(all_scores)
+    return all_predictions, all_scores
+
+
+def plot_predictions(results, horizons=None, start=&#34;2025-03-01&#34;):
+    if start is not None:
+        results = results.filter(
+            pl.col(&#34;prediction_time&#34;)
+            &gt; datetime.datetime.fromisoformat(start).astimezone(datetime.UTC)
+        )
+    if horizons is None:
+        horizons = sorted(
+            {
+                int(m.group(1))
+                for c in results.columns
+                if (m := re.match(r&#34;^pred_(\d+)h.*$&#34;, c)) is not None
+            }
+        )
+    fig = go.Figure()
+    for i, h in enumerate(horizons):
+        target_time = results[&#34;prediction_time&#34;] + datetime.timedelta(hours=h)
+        if not i:
+            fig.add_trace(
+                go.Scatter(
+                    x=target_time,
+                    y=results[f&#34;{h}h&#34;],
+                    mode=&#34;lines+markers&#34;,
+                    line={&#34;dash&#34;: &#34;dash&#34;},
+                    name=&#34;true_load_mw&#34;,
+                    hovertemplate=&#34;%{x|%Y-%m-%d} (%{x|%A}): %{y}&lt;extra&gt;&lt;/extra&gt;&#34;,
+                )
+            )
+        for col in filter(lambda c: f&#34;pred_{h}h&#34; in c, results.columns):
+            fig.add_trace(
+                go.Scatter(
+                    x=target_time,
+                    y=results[col],
+                    mode=&#34;lines&#34;,
+                    name=col,
+                    hovertemplate=&#34;%{x|%Y-%m-%d} (%{x|%A}): %{y}&lt;extra&gt;&lt;/extra&gt;&#34;,
+                )
+            )
+    fig.update_layout(height=600, title=f&#34;CV predicted load mw&#34;)
+    return fig
+
+
+def get_report_predictions(report):
+    &#34;&#34;&#34;
+    Get predictions out of a skore report.
+    &#34;&#34;&#34;
+    all_predictions = []
+    for i, r in enumerate(report.reports_):
+        all_predictions.append(
+            concat_X_y_predictions(
+                r.X_test, r.y_test, r.get_predictions(data_source=&#34;test&#34;)
+            ).with_columns(split=pl.lit(i))
+        )
+    return pl.concat(all_predictions, how=&#34;vertical&#34;)
+
+
+def get_new_date(add_hours=0):
+    &#34;&#34;&#34;Get the first hour out of the range of historical data&#34;&#34;&#34;
+    return (
+        (fetch_load_mw_history()[&#34;time&#34;] - datetime.timedelta(seconds=1)).dt.truncate(
+            &#34;1h&#34;
+        )
+        + datetime.timedelta(hours=add_hours)
+    ).max()
+</code></pre>
+
+<script>
+var _self="undefined"!=typeof window?window:"undefined"!=typeof WorkerGlobalScope&&self instanceof WorkerGlobalScope?self:{},Prism=function(e){var n=/(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i,t=0,r={},a={manual:e.Prism&&e.Prism.manual,disableWorkerMessageHandler:e.Prism&&e.Prism.disableWorkerMessageHandler,util:{encode:function e(n){return n instanceof i?new i(n.type,e(n.content),n.alias):Array.isArray(n)?n.map(e):n.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/\u00a0/g," ")},type:function(e){return Object.prototype.toString.call(e).slice(8,-1)},objId:function(e){return e.__id||Object.defineProperty(e,"__id",{value:++t}),e.__id},clone:function e(n,t){var r,i;switch(t=t||{},a.util.type(n)){case"Object":if(i=a.util.objId(n),t[i])return t[i];for(var l in r={},t[i]=r,n)n.hasOwnProperty(l)&&(r[l]=e(n[l],t));return r;case"Array":return i=a.util.objId(n),t[i]?t[i]:(r=[],t[i]=r,n.forEach((function(n,a){r[a]=e(n,t)})),r);default:return n}},getLanguage:function(e){for(;e;){var t=n.exec(e.className);if(t)return t[1].toLowerCase();e=e.parentElement}return"none"},setLanguage:function(e,t){e.className=e.className.replace(RegExp(n,"gi"),""),e.classList.add("language-"+t)},currentScript:function(){if("undefined"==typeof document)return null;if("currentScript"in document)return document.currentScript;try{throw new Error}catch(r){var e=(/at [^(\r\n]*\((.*):[^:]+:[^:]+\)$/i.exec(r.stack)||[])[1];if(e){var n=document.getElementsByTagName("script");for(var t in n)if(n[t].src==e)return n[t]}return null}},isActive:function(e,n,t){for(var r="no-"+n;e;){var a=e.classList;if(a.contains(n))return!0;if(a.contains(r))return!1;e=e.parentElement}return!!t}},languages:{plain:r,plaintext:r,text:r,txt:r,extend:function(e,n){var t=a.util.clone(a.languages[e]);for(var r in n)t[r]=n[r];return t},insertBefore:function(e,n,t,r){var i=(r=r||a.languages)[e],l={};for(var o in i)if(i.hasOwnProperty(o)){if(o==n)for(var s in t)t.hasOwnProperty(s)&&(l[s]=t[s]);t.hasOwnProperty(o)||(l[o]=i[o])}var u=r[e];return r[e]=l,a.languages.DFS(a.languages,(function(n,t){t===u&&n!=e&&(this[n]=l)})),l},DFS:function e(n,t,r,i){i=i||{};var l=a.util.objId;for(var o in n)if(n.hasOwnProperty(o)){t.call(n,o,n[o],r||o);var s=n[o],u=a.util.type(s);"Object"!==u||i[l(s)]?"Array"!==u||i[l(s)]||(i[l(s)]=!0,e(s,t,o,i)):(i[l(s)]=!0,e(s,t,null,i))}}},plugins:{},highlightAll:function(e,n){a.highlightAllUnder(document,e,n)},highlightAllUnder:function(e,n,t){var r={callback:t,container:e,selector:'code[class*="language-"], [class*="language-"] code, code[class*="lang-"], [class*="lang-"] code'};a.hooks.run("before-highlightall",r),r.elements=Array.prototype.slice.apply(r.container.querySelectorAll(r.selector)),a.hooks.run("before-all-elements-highlight",r);for(var i,l=0;i=r.elements[l++];)a.highlightElement(i,!0===n,r.callback)},highlightElement:function(n,t,r){var i=a.util.getLanguage(n),l=a.languages[i];a.util.setLanguage(n,i);var o=n.parentElement;o&&"pre"===o.nodeName.toLowerCase()&&a.util.setLanguage(o,i);var s={element:n,language:i,grammar:l,code:n.textContent};function u(e){s.highlightedCode=e,a.hooks.run("before-insert",s),s.element.innerHTML=s.highlightedCode,a.hooks.run("after-highlight",s),a.hooks.run("complete",s),r&&r.call(s.element)}if(a.hooks.run("before-sanity-check",s),(o=s.element.parentElement)&&"pre"===o.nodeName.toLowerCase()&&!o.hasAttribute("tabindex")&&o.setAttribute("tabindex","0"),!s.code)return a.hooks.run("complete",s),void(r&&r.call(s.element));if(a.hooks.run("before-highlight",s),s.grammar)if(t&&e.Worker){var c=new Worker(a.filename);c.onmessage=function(e){u(e.data)},c.postMessage(JSON.stringify({language:s.language,code:s.code,immediateClose:!0}))}else u(a.highlight(s.code,s.grammar,s.language));else u(a.util.encode(s.code))},highlight:function(e,n,t){var r={code:e,grammar:n,language:t};if(a.hooks.run("before-tokenize",r),!r.grammar)throw new Error('The language "'+r.language+'" has no grammar.');return r.tokens=a.tokenize(r.code,r.grammar),a.hooks.run("after-tokenize",r),i.stringify(a.util.encode(r.tokens),r.language)},tokenize:function(e,n){var t=n.rest;if(t){for(var r in t)n[r]=t[r];delete n.rest}var a=new s;return u(a,a.head,e),o(e,a,n,a.head,0),function(e){for(var n=[],t=e.head.next;t!==e.tail;)n.push(t.value),t=t.next;return n}(a)},hooks:{all:{},add:function(e,n){var t=a.hooks.all;t[e]=t[e]||[],t[e].push(n)},run:function(e,n){var t=a.hooks.all[e];if(t&&t.length)for(var r,i=0;r=t[i++];)r(n)}},Token:i};function i(e,n,t,r){this.type=e,this.content=n,this.alias=t,this.length=0|(r||"").length}function l(e,n,t,r){e.lastIndex=n;var a=e.exec(t);if(a&&r&&a[1]){var i=a[1].length;a.index+=i,a[0]=a[0].slice(i)}return a}function o(e,n,t,r,s,g){for(var f in t)if(t.hasOwnProperty(f)&&t[f]){var h=t[f];h=Array.isArray(h)?h:[h];for(var d=0;d<h.length;++d){if(g&&g.cause==f+","+d)return;var v=h[d],p=v.inside,m=!!v.lookbehind,y=!!v.greedy,k=v.alias;if(y&&!v.pattern.global){var x=v.pattern.toString().match(/[imsuy]*$/)[0];v.pattern=RegExp(v.pattern.source,x+"g")}for(var b=v.pattern||v,w=r.next,A=s;w!==n.tail&&!(g&&A>=g.reach);A+=w.value.length,w=w.next){var E=w.value;if(n.length>e.length)return;if(!(E instanceof i)){var P,L=1;if(y){if(!(P=l(b,A,e,m))||P.index>=e.length)break;var S=P.index,O=P.index+P[0].length,j=A;for(j+=w.value.length;S>=j;)j+=(w=w.next).value.length;if(A=j-=w.value.length,w.value instanceof i)continue;for(var C=w;C!==n.tail&&(j<O||"string"==typeof C.value);C=C.next)L++,j+=C.value.length;L--,E=e.slice(A,j),P.index-=A}else if(!(P=l(b,0,E,m)))continue;S=P.index;var N=P[0],_=E.slice(0,S),M=E.slice(S+N.length),W=A+E.length;g&&W>g.reach&&(g.reach=W);var z=w.prev;if(_&&(z=u(n,z,_),A+=_.length),c(n,z,L),w=u(n,z,new i(f,p?a.tokenize(N,p):N,k,N)),M&&u(n,w,M),L>1){var I={cause:f+","+d,reach:W};o(e,n,t,w.prev,A,I),g&&I.reach>g.reach&&(g.reach=I.reach)}}}}}}function s(){var e={value:null,prev:null,next:null},n={value:null,prev:e,next:null};e.next=n,this.head=e,this.tail=n,this.length=0}function u(e,n,t){var r=n.next,a={value:t,prev:n,next:r};return n.next=a,r.prev=a,e.length++,a}function c(e,n,t){for(var r=n.next,a=0;a<t&&r!==e.tail;a++)r=r.next;n.next=r,r.prev=n,e.length-=a}if(e.Prism=a,i.stringify=function e(n,t){if("string"==typeof n)return n;if(Array.isArray(n)){var r="";return n.forEach((function(n){r+=e(n,t)})),r}var i={type:n.type,content:e(n.content,t),tag:"span",classes:["token",n.type],attributes:{},language:t},l=n.alias;l&&(Array.isArray(l)?Array.prototype.push.apply(i.classes,l):i.classes.push(l)),a.hooks.run("wrap",i);var o="";for(var s in i.attributes)o+=" "+s+'="'+(i.attributes[s]||"").replace(/"/g,"&quot;")+'"';return"<"+i.tag+' class="'+i.classes.join(" ")+'"'+o+">"+i.content+"</"+i.tag+">"},!e.document)return e.addEventListener?(a.disableWorkerMessageHandler||e.addEventListener("message",(function(n){var t=JSON.parse(n.data),r=t.language,i=t.code,l=t.immediateClose;e.postMessage(a.highlight(i,a.languages[r],r)),l&&e.close()}),!1),a):a;var g=a.util.currentScript();function f(){a.manual||a.highlightAll()}if(g&&(a.filename=g.src,g.hasAttribute("data-manual")&&(a.manual=!0)),!a.manual){var h=document.readyState;"loading"===h||"interactive"===h&&g&&g.defer?document.addEventListener("DOMContentLoaded",f):window.requestAnimationFrame?window.requestAnimationFrame(f):window.setTimeout(f,16)}return a}(_self);"undefined"!=typeof module&&module.exports&&(module.exports=Prism),"undefined"!=typeof global&&(global.Prism=Prism);
+Prism.languages.python={comment:{pattern:/(^|[^\\])#.*/,lookbehind:!0,greedy:!0},"string-interpolation":{pattern:/(?:f|fr|rf)(?:("""|''')[\s\S]*?\1|("|')(?:\\.|(?!\2)[^\\\r\n])*\2)/i,greedy:!0,inside:{interpolation:{pattern:/((?:^|[^{])(?:\{\{)*)\{(?!\{)(?:[^{}]|\{(?!\{)(?:[^{}]|\{(?!\{)(?:[^{}])+\})+\})+\}/,lookbehind:!0,inside:{"format-spec":{pattern:/(:)[^:(){}]+(?=\}$)/,lookbehind:!0},"conversion-option":{pattern:/![sra](?=[:}]$)/,alias:"punctuation"},rest:null}},string:/[\s\S]+/}},"triple-quoted-string":{pattern:/(?:[rub]|br|rb)?("""|''')[\s\S]*?\1/i,greedy:!0,alias:"string"},string:{pattern:/(?:[rub]|br|rb)?("|')(?:\\.|(?!\1)[^\\\r\n])*\1/i,greedy:!0},function:{pattern:/((?:^|\s)def[ \t]+)[a-zA-Z_]\w*(?=\s*\()/g,lookbehind:!0},"class-name":{pattern:/(\bclass\s+)\w+/i,lookbehind:!0},decorator:{pattern:/(^[\t ]*)@\w+(?:\.\w+)*/m,lookbehind:!0,alias:["annotation","punctuation"],inside:{punctuation:/\./}},keyword:/\b(?:_(?=\s*:)|and|as|assert|async|await|break|case|class|continue|def|del|elif|else|except|exec|finally|for|from|global|if|import|in|is|lambda|match|nonlocal|not|or|pass|print|raise|return|try|while|with|yield)\b/,builtin:/\b(?:__import__|abs|all|any|apply|ascii|basestring|bin|bool|buffer|bytearray|bytes|callable|chr|classmethod|cmp|coerce|compile|complex|delattr|dict|dir|divmod|enumerate|eval|execfile|file|filter|float|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|int|intern|isinstance|issubclass|iter|len|list|locals|long|map|max|memoryview|min|next|object|oct|open|ord|pow|property|range|raw_input|reduce|reload|repr|reversed|round|set|setattr|slice|sorted|staticmethod|str|sum|super|tuple|type|unichr|unicode|vars|xrange|zip)\b/,boolean:/\b(?:False|None|True)\b/,number:/\b0(?:b(?:_?[01])+|o(?:_?[0-7])+|x(?:_?[a-f0-9])+)\b|(?:\b\d+(?:_\d+)*(?:\.(?:\d+(?:_\d+)*)?)?|\B\.\d+(?:_\d+)*)(?:e[+-]?\d+(?:_\d+)*)?j?(?!\w)/i,operator:/[-+%=]=?|!=|:=|\*\*?=?|\/\/?=?|<[<=>]?|>[=>]?|[&|^~]/,punctuation:/[{}[\];(),.:]/},Prism.languages.python["string-interpolation"].inside.interpolation.inside.rest=Prism.languages.python,Prism.languages.py=Prism.languages.python;
+!function(){if("undefined"!=typeof Prism&&"undefined"!=typeof document){var e="line-numbers",n=/\n(?!$)/g,t=Prism.plugins.lineNumbers={getLine:function(n,t){if("PRE"===n.tagName&&n.classList.contains(e)){var i=n.querySelector(".line-numbers-rows");if(i){var r=parseInt(n.getAttribute("data-start"),10)||1,s=r+(i.children.length-1);t<r&&(t=r),t>s&&(t=s);var l=t-r;return i.children[l]}}},resize:function(e){r([e])},assumeViewportIndependence:!0},i=void 0;window.addEventListener("resize",(function(){t.assumeViewportIndependence&&i===window.innerWidth||(i=window.innerWidth,r(Array.prototype.slice.call(document.querySelectorAll("pre.line-numbers"))))})),Prism.hooks.add("complete",(function(t){if(t.code){var i=t.element,s=i.parentNode;if(s&&/pre/i.test(s.nodeName)&&!i.querySelector(".line-numbers-rows")&&Prism.util.isActive(i,e)){i.classList.remove(e),s.classList.add(e);var l,o=t.code.match(n),a=o?o.length+1:1,u=new Array(a+1).join("<span></span>");(l=document.createElement("span")).setAttribute("aria-hidden","true"),l.className="line-numbers-rows",l.innerHTML=u,s.hasAttribute("data-start")&&(s.style.counterReset="linenumber "+(parseInt(s.getAttribute("data-start"),10)-1)),t.element.appendChild(l),r([s]),Prism.hooks.run("line-numbers",t)}}})),Prism.hooks.add("line-numbers",(function(e){e.plugins=e.plugins||{},e.plugins.lineNumbers=!0}))}function r(e){if(0!=(e=e.filter((function(e){var n,t=(n=e,n?window.getComputedStyle?getComputedStyle(n):n.currentStyle||null:null)["white-space"];return"pre-wrap"===t||"pre-line"===t}))).length){var t=e.map((function(e){var t=e.querySelector("code"),i=e.querySelector(".line-numbers-rows");if(t&&i){var r=e.querySelector(".line-numbers-sizer"),s=t.textContent.split(n);r||((r=document.createElement("span")).className="line-numbers-sizer",t.appendChild(r)),r.innerHTML="0",r.style.display="block";var l=r.getBoundingClientRect().height;return r.innerHTML="",{element:e,lines:s,lineHeights:[],oneLinerHeight:l,sizer:r}}})).filter(Boolean);t.forEach((function(e){var n=e.sizer,t=e.lines,i=e.lineHeights,r=e.oneLinerHeight;i[t.length-1]=void 0,t.forEach((function(e,t){if(e&&e.length>1){var s=n.appendChild(document.createElement("span"));s.style.display="block",s.textContent=e}else i[t]=r}))})),t.forEach((function(e){for(var n=e.sizer,t=e.lineHeights,i=0,r=0;r<t.length;r++)void 0===t[r]&&(t[r]=n.children[i++].getBoundingClientRect().height)})),t.forEach((function(e){var n=e.sizer,t=e.element.querySelector(".line-numbers-rows");n.style.display="none",n.innerHTML="",e.lineHeights.forEach((function(e,n){t.children[n].style.height=e+"px"}))}))}}}();
+!function(){if("undefined"!=typeof Prism&&"undefined"!=typeof document&&document.querySelector){var e,t="line-numbers",i="linkable-line-numbers",n=/\n(?!$)/g,r=!0;Prism.plugins.lineHighlight={highlightLines:function(o,u,c){var h=(u="string"==typeof u?u:o.getAttribute("data-line")||"").replace(/\s+/g,"").split(",").filter(Boolean),d=+o.getAttribute("data-line-offset")||0,f=(function(){if(void 0===e){var t=document.createElement("div");t.style.fontSize="13px",t.style.lineHeight="1.5",t.style.padding="0",t.style.border="0",t.innerHTML="&nbsp;<br />&nbsp;",document.body.appendChild(t),e=38===t.offsetHeight,document.body.removeChild(t)}return e}()?parseInt:parseFloat)(getComputedStyle(o).lineHeight),p=Prism.util.isActive(o,t),g=o.querySelector("code"),m=p?o:g||o,v=[],y=g.textContent.match(n),b=y?y.length+1:1,A=g&&m!=g?function(e,t){var i=getComputedStyle(e),n=getComputedStyle(t);function r(e){return+e.substr(0,e.length-2)}return t.offsetTop+r(n.borderTopWidth)+r(n.paddingTop)-r(i.paddingTop)}(o,g):0;h.forEach((function(e){var t=e.split("-"),i=+t[0],n=+t[1]||i;if(!((n=Math.min(b+d,n))<i)){var r=o.querySelector('.line-highlight[data-range="'+e+'"]')||document.createElement("div");if(v.push((function(){r.setAttribute("aria-hidden","true"),r.setAttribute("data-range",e),r.className=(c||"")+" line-highlight"})),p&&Prism.plugins.lineNumbers){var s=Prism.plugins.lineNumbers.getLine(o,i),l=Prism.plugins.lineNumbers.getLine(o,n);if(s){var a=s.offsetTop+A+"px";v.push((function(){r.style.top=a}))}if(l){var u=l.offsetTop-s.offsetTop+l.offsetHeight+"px";v.push((function(){r.style.height=u}))}}else v.push((function(){r.setAttribute("data-start",String(i)),n>i&&r.setAttribute("data-end",String(n)),r.style.top=(i-d-1)*f+A+"px",r.textContent=new Array(n-i+2).join(" \n")}));v.push((function(){r.style.width=o.scrollWidth+"px"})),v.push((function(){m.appendChild(r)}))}}));var P=o.id;if(p&&Prism.util.isActive(o,i)&&P){l(o,i)||v.push((function(){o.classList.add(i)}));var E=parseInt(o.getAttribute("data-start")||"1");s(".line-numbers-rows > span",o).forEach((function(e,t){var i=t+E;e.onclick=function(){var e=P+"."+i;r=!1,location.hash=e,setTimeout((function(){r=!0}),1)}}))}return function(){v.forEach(a)}}};var o=0;Prism.hooks.add("before-sanity-check",(function(e){var t=e.element.parentElement;if(u(t)){var i=0;s(".line-highlight",t).forEach((function(e){i+=e.textContent.length,e.parentNode.removeChild(e)})),i&&/^(?: \n)+$/.test(e.code.slice(-i))&&(e.code=e.code.slice(0,-i))}})),Prism.hooks.add("complete",(function e(i){var n=i.element.parentElement;if(u(n)){clearTimeout(o);var r=Prism.plugins.lineNumbers,s=i.plugins&&i.plugins.lineNumbers;l(n,t)&&r&&!s?Prism.hooks.add("line-numbers",e):(Prism.plugins.lineHighlight.highlightLines(n)(),o=setTimeout(c,1))}})),window.addEventListener("hashchange",c),window.addEventListener("resize",(function(){s("pre").filter(u).map((function(e){return Prism.plugins.lineHighlight.highlightLines(e)})).forEach(a)}))}function s(e,t){return Array.prototype.slice.call((t||document).querySelectorAll(e))}function l(e,t){return e.classList.contains(t)}function a(e){e()}function u(e){return!!(e&&/pre/i.test(e.nodeName)&&(e.hasAttribute("data-line")||e.id&&Prism.util.isActive(e,i)))}function c(){var e=location.hash.slice(1);s(".temporary.line-highlight").forEach((function(e){e.parentNode.removeChild(e)}));var t=(e.match(/\.([\d,-]+)$/)||[,""])[1];if(t&&!document.getElementById(e)){var i=e.slice(0,e.lastIndexOf(".")),n=document.getElementById(i);n&&(n.hasAttribute("data-line")||n.setAttribute("data-line",""),Prism.plugins.lineHighlight.highlightLines(n,t,"temporary ")(),r&&document.querySelector(".temporary.line-highlight").scrollIntoView())}}}();
+</script>
+
+<script>
+  // Parse "#L5" (GitHub/GitLab style) from the URL hash and return the line number, or null.
+  function lineFromHash() {
+    var m = /^#?L(\d+)$/.exec(location.hash);
+    return m ? m[1] : null;
+  }
+
+  var codeEl = document.getElementById('code');
+  var containerEl = document.getElementById('code-container');
+
+  // Tell the line-highlight plugin which line to highlight (if any).
+  var line = lineFromHash();
+  if (line) containerEl.setAttribute('data-line', line);
+
+  // Highlight + render line numbers / line highlight. The Python source is
+  // already embedded in the <code> element above, so no fetch() is needed.
+  Prism.highlightElement(codeEl);
+
+  // Scroll the highlighted line into view once Prism has rendered the highlight overlay.
+  if (line) {
+    setTimeout(function () {
+      var highlightEl = containerEl.querySelector('.line-highlight');
+      if (highlightEl) highlightEl.scrollIntoView({ block: 'center' });
+    }, 0);
+  }
+
+  // Support changing the hash while the page is open (e.g. user edits #L2 -> #L3).
+  window.addEventListener('hashchange', function () {
+    location.reload();
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,307 @@
+
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DataOp report</title>
+    <style>
+     html {
+    font-family: sans-serif;
+    --current-node-color: #15ed8f;
+}
+
+h1,h2,h3,h4 {
+    margin-top: 0.6em;
+    margin-bottom: 0.2em;
+    margin-left: 0;
+    margin-right: 0;
+}
+h1 {
+    margin-top: 0;
+}
+
+ul {
+    margin: 0.1em;
+}
+
+* *::before, *::after {
+    box-sizing: border-box;
+}
+
+pre, code {
+    font-size: 1rem;
+}
+
+.docstring-details summary {
+    cursor: pointer;
+}
+
+.docstring-details {
+    margin: 1em 0;
+}
+
+#graph-nav text {
+    transform: translateY(2px);
+}
+
+.data_op-node-wrapper {
+    overflow-x: auto;
+}
+
+.mini-nav > ul {
+    display: grid;
+    grid-template-columns: 10ch 10ch 10ch;
+    list-style-type: none;
+}
+
+.data_op-node {
+    display: flex;
+    height: 100%;
+}
+
+.data_op-node > * {
+    padding: 1rem;
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+.data_op-node > nav.main-nav {
+    border-right: 2px solid #ccc;
+    flex-shrink: 0;
+}
+
+.node-details {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.data_op-node > nav.main-nav {
+    resize: horizontal;
+    min-width: 8rem;
+    /* A wide graph scrolls rather than squeezing the node details. */
+    max-width: 75vw;
+    box-sizing: border-box;
+}
+
+.data_op-node > .node-frame {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    width: 100%;
+    height: 100%;
+}
+
+/* Node pages are displayed inside the iframe of the index page: they fill it
+   and scroll as a whole. */
+.node-page {
+    margin: 0;
+}
+
+.node-page .data_op-node {
+    display: block;
+    height: auto;
+}
+
+.node-page .data_op-node > * {
+    max-height: none;
+    overflow-y: visible;
+}
+
+.node-page .node-details {
+    min-height: 100vh;
+}
+
+.node-details[data-has-error]{
+    background: #ffcccc;
+}
+
+.node-details[data-is-skipped]{
+    background: #eee;
+}
+
+.is-skipped-message{
+    background: #eee;
+    padding: 0 1em 1em 1em;
+    border: 1px solid black;
+}
+
+.is-skipped-message + * {
+    margin-top: 1em;
+}
+
+.node-creation-stack {
+    font-size: 1rem;
+}
+
+.node-creation-stack a {
+    text-decoration: none;
+}
+
+.node-creation-stack .node-creation-stack-line {
+    display: block;
+    margin-left: 2em;
+}
+
+.main-nav:not([data-is-open]){
+    display: none;
+}
+
+.nav-legend-current-node {
+    display: flex;
+    background: var(--current-node-color);
+    border: 4px solid black;
+    font-size: 1.2rem;
+    padding: 3px;
+}
+
+.nav-legend-current-node + * {
+    margin-top: 2rem;
+}
+
+/* Layout of the index page: a header (toggle button and report title), below
+   it the graph and the iframe displaying the selected node. */
+.report-index {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.report-header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+}
+
+.report-index > .data_op-node-wrapper {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.report-index .data_op-node {
+    flex: 1;
+    min-height: 0;
+}
+
+.icon-button {
+    flex: none;
+    padding: 2px;
+    width: 24px;
+    height: 24px;
+}
+
+.report-title {
+    margin: 0;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.error-node polygon {
+    stroke: red;
+    stroke-width: 3;
+}
+
+.skipped-node polygon {
+    stroke-dasharray: 4;
+}
+    </style>
+    <script>
+ // Tell index.html (which displays this page in an iframe) which node is shown
+ // (null when no particular node is).
+ if (window.parent !== window) {
+     window.parent.postMessage(
+         {type: "skrub-report-node-shown", nodeId: 1}, "*");
+ }
+</script>
+</head>
+
+<body class="node-page">
+    <div class="data_op-node-wrapper">
+        <div class="data_op-node">
+            <div class="node-details" 
+                >
+                <h1>Var &#39;end&#39; NoneType</h1>
+                <div><pre><code></code></pre></div>
+                <nav class="mini-nav">
+                    <ul>
+                        <li>
+                            
+                            <a href="node_0.html">previous</a>
+                            
+                        </li>
+                        <li>
+                            
+                            <a href="node_2.html">next</a>
+                            
+                        </li>
+                    </ul>
+                </nav>
+                <samp>ID:</samp> <samp>81779237774211849929340610488138713597</samp>
+                
+                <h2><samp>Name: end</samp></h2>
+                
+                <div>
+                    
+                    <h3>Description:</h3>
+                    <p>
+                        The last time at which a prediction is made.
+                    </p>
+                    
+
+                    <h3>This step uses:</h3>
+                    <ul>
+                        
+                    </ul>
+                </div>
+
+                <div>
+                    <h3>This step is used by:</h3>
+                    <ul>
+                        
+                        <li><a href="node_2.html">2:
+                                Call &#39;time_range&#39;</a></li>
+                        
+                        <li><a href="node_34.html">34:
+                                Call &#39;post_process&#39;</a></li>
+                        
+                    </ul>
+                </div>
+
+                <div>
+                    <h3>Where was this step created?</h3>
+                    <pre><code class="node-creation-stack">File <a href="python/42927aeaf9b592d87e93b0fd31972164280196ea0846b54eeb8abb551aa60f47.html#L6">/home/jerome/workspace/repos/skore-example-electricity-load/report.py, line 6</a>, in &lt;module&gt;
+<span class="node-creation-stack-line">pred = elf.make_data_op(quantile_strategy=quantile_strategy, recalibrate=True)</span>File <a href="python/c95133492b6e377c92b739003a3ca88b39a5ad2e6c00a1af24bf58e3276c378d.html#L621">/home/jerome/workspace/repos/skore-example-electricity-load/electricity_load_forecasting.py, line 621</a>, in make_data_op
+<span class="node-creation-stack-line">range_end = skrub.var(&#34;end&#34;, None, becomes_default=True).skb.set_description(</span></code></pre>
+                </div>
+                
+
+                
+                <div>
+                    <h2>Output of this step</h2>
+
+                    
+                    <div>
+                        <div style="max-height: 30em; max-width: 95%; overflow: auto;">
+    <samp>
+        <pre>&#39;2025-05-31&#39;</pre>
+    </samp>
+</div>
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

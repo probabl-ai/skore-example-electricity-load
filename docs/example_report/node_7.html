@@ -1,0 +1,386 @@
+
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DataOp report</title>
+    <style>
+     html {
+    font-family: sans-serif;
+    --current-node-color: #15ed8f;
+}
+
+h1,h2,h3,h4 {
+    margin-top: 0.6em;
+    margin-bottom: 0.2em;
+    margin-left: 0;
+    margin-right: 0;
+}
+h1 {
+    margin-top: 0;
+}
+
+ul {
+    margin: 0.1em;
+}
+
+* *::before, *::after {
+    box-sizing: border-box;
+}
+
+pre, code {
+    font-size: 1rem;
+}
+
+.docstring-details summary {
+    cursor: pointer;
+}
+
+.docstring-details {
+    margin: 1em 0;
+}
+
+#graph-nav text {
+    transform: translateY(2px);
+}
+
+.data_op-node-wrapper {
+    overflow-x: auto;
+}
+
+.mini-nav > ul {
+    display: grid;
+    grid-template-columns: 10ch 10ch 10ch;
+    list-style-type: none;
+}
+
+.data_op-node {
+    display: flex;
+    height: 100%;
+}
+
+.data_op-node > * {
+    padding: 1rem;
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+.data_op-node > nav.main-nav {
+    border-right: 2px solid #ccc;
+    flex-shrink: 0;
+}
+
+.node-details {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.data_op-node > nav.main-nav {
+    resize: horizontal;
+    min-width: 8rem;
+    /* A wide graph scrolls rather than squeezing the node details. */
+    max-width: 75vw;
+    box-sizing: border-box;
+}
+
+.data_op-node > .node-frame {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    width: 100%;
+    height: 100%;
+}
+
+/* Node pages are displayed inside the iframe of the index page: they fill it
+   and scroll as a whole. */
+.node-page {
+    margin: 0;
+}
+
+.node-page .data_op-node {
+    display: block;
+    height: auto;
+}
+
+.node-page .data_op-node > * {
+    max-height: none;
+    overflow-y: visible;
+}
+
+.node-page .node-details {
+    min-height: 100vh;
+}
+
+.node-details[data-has-error]{
+    background: #ffcccc;
+}
+
+.node-details[data-is-skipped]{
+    background: #eee;
+}
+
+.is-skipped-message{
+    background: #eee;
+    padding: 0 1em 1em 1em;
+    border: 1px solid black;
+}
+
+.is-skipped-message + * {
+    margin-top: 1em;
+}
+
+.node-creation-stack {
+    font-size: 1rem;
+}
+
+.node-creation-stack a {
+    text-decoration: none;
+}
+
+.node-creation-stack .node-creation-stack-line {
+    display: block;
+    margin-left: 2em;
+}
+
+.main-nav:not([data-is-open]){
+    display: none;
+}
+
+.nav-legend-current-node {
+    display: flex;
+    background: var(--current-node-color);
+    border: 4px solid black;
+    font-size: 1.2rem;
+    padding: 3px;
+}
+
+.nav-legend-current-node + * {
+    margin-top: 2rem;
+}
+
+/* Layout of the index page: a header (toggle button and report title), below
+   it the graph and the iframe displaying the selected node. */
+.report-index {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.report-header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+}
+
+.report-index > .data_op-node-wrapper {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.report-index .data_op-node {
+    flex: 1;
+    min-height: 0;
+}
+
+.icon-button {
+    flex: none;
+    padding: 2px;
+    width: 24px;
+    height: 24px;
+}
+
+.report-title {
+    margin: 0;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.error-node polygon {
+    stroke: red;
+    stroke-width: 3;
+}
+
+.skipped-node polygon {
+    stroke-dasharray: 4;
+}
+    </style>
+    <script>
+ // Tell index.html (which displays this page in an iframe) which node is shown
+ // (null when no particular node is).
+ if (window.parent !== window) {
+     window.parent.postMessage(
+         {type: "skrub-report-node-shown", nodeId: 7}, "*");
+ }
+</script>
+</head>
+
+<body class="node-page">
+    <div class="data_op-node-wrapper">
+        <div class="data_op-node">
+            <div class="node-details" 
+                >
+                <h1>Call &#39;get_X_y&#39;</h1>
+                <div><pre><code></code></pre></div>
+                <nav class="mini-nav">
+                    <ul>
+                        <li>
+                            
+                            <a href="node_6.html">previous</a>
+                            
+                        </li>
+                        <li>
+                            
+                            <a href="node_8.html">next</a>
+                            
+                        </li>
+                    </ul>
+                </nav>
+                <samp>ID:</samp> <samp>296197708072845611676059944264394650222</samp>
+                
+                <div>
+                    
+
+                    <h3>This step uses:</h3>
+                    <ul>
+                        
+                        <li><a href="node_2.html">2:
+                                Call &#39;time_range&#39;</a></li>
+                        
+                        <li><a href="node_5.html">5:
+                                Call &#39;resample&#39;</a></li>
+                        
+                        <li><a href="node_6.html">6:
+                                EvalMode</a></li>
+                        
+                    </ul>
+                </div>
+
+                <div>
+                    <h3>This step is used by:</h3>
+                    <ul>
+                        
+                        <li><a href="node_8.html">8:
+                                GetItem &#39;X&#39;</a></li>
+                        
+                        <li><a href="node_16.html">16:
+                                GetItem &#39;y&#39;</a></li>
+                        
+                    </ul>
+                </div>
+
+                <div>
+                    <h3>Where was this step created?</h3>
+                    <pre><code class="node-creation-stack">File <a href="python/42927aeaf9b592d87e93b0fd31972164280196ea0846b54eeb8abb551aa60f47.html#L6">/home/jerome/workspace/repos/skore-example-electricity-load/report.py, line 6</a>, in &lt;module&gt;
+<span class="node-creation-stack-line">pred = elf.make_data_op(quantile_strategy=quantile_strategy, recalibrate=True)</span>File <a href="python/c95133492b6e377c92b739003a3ca88b39a5ad2e6c00a1af24bf58e3276c378d.html#L643">/home/jerome/workspace/repos/skore-example-electricity-load/electricity_load_forecasting.py, line 643</a>, in make_data_op
+<span class="node-creation-stack-line">X_y = prediction_time.skb.apply_func(get_X_y, load_mw_history, horizons)</span></code></pre>
+                </div>
+                
+
+                
+                <div>
+                    <h3>Computation time</h3>
+                    <code>0h 0m 0.0012s</code>
+                </div>
+                
+
+                
+                
+                <div>
+                    <h3>Function applied in this step:</h3>
+                    <code>get_X_y</code>
+                    
+                    : <a href="python/c95133492b6e377c92b739003a3ca88b39a5ad2e6c00a1af24bf58e3276c378d.html#L137">source code</a>
+                    
+
+                    
+
+
+<details class="docstring-details">
+    <summary>
+        <strong>docstring:</strong>
+        <code>Compute input and target variables.</code>
+    </summary>
+    <pre><code>Compute input and target variables.
+
+For fitting (and validation), this builds the targets y by applying
+appropriate shifts to the historical data. The targets y and prediction
+times X are aligned, and rows with missing ground truth are dropped.
+Returns a dictionary with keys X and y, ready to be split for
+cross-validation or used to fit a model.
+
+For prediction, simply returns `prediction_time` in a dictionary with a
+single key X.</code></pre>
+</details>
+
+
+
+
+                </div>
+                
+                
+
+                
+                <div>
+                    <h2>Output of this step</h2>
+
+                    
+                    <div>
+                        <div style="max-height: 30em; max-width: 95%; overflow: auto;">
+    <samp>
+        <pre>{&#39;X&#39;: shape: (36_614, 1)
+┌─────────────────────────┐
+│ prediction_time         │
+│ ---                     │
+│ datetime[μs, UTC]       │
+╞═════════════════════════╡
+│ 2021-03-23 00:00:00 UTC │
+│ 2021-03-23 01:00:00 UTC │
+│ 2021-03-23 02:00:00 UTC │
+│ 2021-03-23 03:00:00 UTC │
+│ 2021-03-23 04:00:00 UTC │
+│ …                       │
+│ 2025-05-30 20:00:00 UTC │
+│ 2025-05-30 21:00:00 UTC │
+│ 2025-05-30 22:00:00 UTC │
+│ 2025-05-30 23:00:00 UTC │
+│ 2025-05-31 00:00:00 UTC │
+└─────────────────────────┘, &#39;y&#39;: shape: (36_614, 3)
+┌──────────┬──────────┬──────────┐
+│ 1h       ┆ 12h      ┆ 24h      │
+│ ---      ┆ ---      ┆ ---      │
+│ f32      ┆ f32      ┆ f32      │
+╞══════════╪══════════╪══════════╡
+│ 59369.0  ┆ 61958.0  ┆ 57689.0  │
+│ 57550.0  ┆ 59169.0  ┆ 57042.0  │
+│ 57188.0  ┆ 56938.0  ┆ 55264.0  │
+│ 60367.0  ┆ 55232.0  ┆ 54961.0  │
+│ 65920.0  ┆ 55484.0  ┆ 58148.0  │
+│ …        ┆ …        ┆ …        │
+│ 43066.25 ┆ 40154.0  ┆ 40823.5  │
+│ 40119.5  ┆ 41428.25 ┆ 40596.75 │
+│ 37391.5  ┆ 43159.0  ┆ 37887.5  │
+│ 35673.0  ┆ 41734.0  ┆ 35409.5  │
+│ 33430.25 ┆ 40325.75 ┆ 33600.0  │
+└──────────┴──────────┴──────────┘}</pre>
+    </samp>
+</div>
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
