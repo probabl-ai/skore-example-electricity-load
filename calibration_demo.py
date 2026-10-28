@@ -277,6 +277,50 @@ def panel_range(values):
     return [lo - margin, hi + margin]
 
 
+def interval_coverage_by_level(y, low, high, center, n_bins):
+    """Observed coverage of [low, high] in equal-count bins of ``center``."""
+    edges = np.unique(np.quantile(center, np.linspace(0, 1, n_bins + 1)))
+    bin_ids = np.searchsorted(edges[1:-1], center, side="right")
+    xs, coverage = [], []
+    for b in np.unique(bin_ids):
+        m = bin_ids == b
+        xs.append(float(center[m].mean()))
+        coverage.append(float(((y[m] >= low[m]) & (y[m] <= high[m])).mean()))
+    return xs, coverage
+
+
+def plot_interval_coverage(y, raw, corrected, n_bins):
+    """Coverage of the interval by predicted load level."""
+    fig = go.Figure()
+    fig.add_hline(y=Q_HIGH - Q_LOW, line=dict(color=COLORS["ideal"], dash="dash"))
+    for name, pred in [("raw", raw), ("corrected", corrected)]:
+        xs, coverage = interval_coverage_by_level(
+            y,
+            pred[f"q_{Q_LOW}"].to_numpy(),
+            pred[f"q_{Q_HIGH}"].to_numpy(),
+            pred["q_0.5"].to_numpy(),
+            n_bins,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=coverage,
+                mode="lines+markers",
+                line=dict(color=COLORS[name]),
+                name=name,
+            )
+        )
+    fig.update_layout(
+        title=f"Conditional coverage of the {Q_LOW}-{Q_HIGH} interval by predicted "
+        "load (test set, dashed: nominal level)",
+        xaxis_title="predicted median (MW)",
+        yaxis_title=f"observed coverage of the {Q_LOW}-{Q_HIGH} interval",
+        yaxis=dict(range=[0, 1]),
+        height=450,
+    )
+    return fig
+
+
 def _conditional_reliability(y, raw, corrected, estimate, title, step):
     """One panel per quantile: predicted value vs estimated conditional quantile.
 
@@ -538,6 +582,14 @@ out. Points below the diagonal above &tau; = 0.5 (and above it below 0.5) mean i
 that are too narrow.</p>
 {coverage_curve}
 
+<h3>Conditional coverage of the interval (by predicted load)</h3>
+<p>The marginal coverage can hide over-confidence in some regions and under-confidence in
+others. Here the test cases are split into {n_bins} bins of equal size by the predicted
+median, and in each bin we compute the observed coverage of the {q_low}&ndash;{q_high}
+interval. The dashed line is the nominal level; a curve below it means the interval is too
+narrow at that predicted load, above it too wide.</p>
+{interval_coverage}
+
 <h3>Conditional reliability curves, binned (one panel per quantile)</h3>
 <p>One panel per quantile level &tau;. The test cases are split into {n_bins} bins of equal
 size by predicted value (each model's own predictions); in each bin, x is the mean prediction
@@ -602,6 +654,9 @@ def main():
         "shifts": plot_shifts(recalibrator),
         "timeseries": plot_time_series(time_test, y_test, raw, corrected, start, stop),
         "coverage_curve": plot_coverage_curve(y_test, raw, corrected),
+        "interval_coverage": plot_interval_coverage(
+            y_test, raw, corrected, n_bins=recalibrator.n_bins
+        ),
         "conditional_bins": plot_conditional_binned(
             y_test, raw, corrected, n_bins=recalibrator.n_bins
         ),

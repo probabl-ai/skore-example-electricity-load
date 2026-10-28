@@ -414,6 +414,80 @@ def fig_reliability(raw, recal, horizon_columns):
     return fig
 
 
+def interval_coverage_by_level(y, low, high, center, n_bins):
+    """Observed coverage of [low, high] in equal-count bins of ``center``."""
+    edges = np.unique(np.quantile(center, np.linspace(0, 1, n_bins + 1)))
+    bin_ids = np.searchsorted(edges[1:-1], center, side="right")
+    xs, coverage = [], []
+    for b in np.unique(bin_ids):
+        m = bin_ids == b
+        xs.append(float(center[m].mean()))
+        coverage.append(float(((y[m] >= low[m]) & (y[m] <= high[m])).mean()))
+    return xs, coverage
+
+
+def fig_interval_coverage(raw, recal, horizon_columns, n_bins):
+    """Coverage of the [q_low, q_high] interval, by predicted load level.
+
+    One panel per horizon. The test cases are split into ``n_bins`` equal-count
+    bins by each model's predicted median; the curve is the observed coverage of
+    the interval in each bin, against its mean predicted median. This shows
+    whether the marginal coverage is uniform across predicted loads, or whether
+    over- and under-confidence in different regions compensate each other.
+    """
+    horizons = list(horizon_columns)
+    quantiles = sorted(next(iter(horizon_columns.values())))
+    q_low, q_high = quantiles[0], quantiles[-1]
+    median = min(quantiles, key=lambda q: abs(q - 0.5))
+    nominal = q_high - q_low
+    fig = make_subplots(
+        rows=1,
+        cols=len(horizons),
+        subplot_titles=[f"horizon {h}h" for h in horizons],
+        shared_yaxes=True,
+        horizontal_spacing=0.05,
+    )
+    for j, h in enumerate(horizons, 1):
+        fig.add_hline(
+            y=nominal,
+            line=dict(color=COLORS["ideal"], dash="dash"),
+            row=1,
+            col=j,
+            exclude_empty_subplots=False,
+        )
+        for name, preds in (("raw", raw), ("recalibrated", recal)):
+            y = preds[f"{h}h"].to_numpy()
+            low = preds[horizon_columns[h][q_low]].to_numpy()
+            high = preds[horizon_columns[h][q_high]].to_numpy()
+            center = preds[horizon_columns[h][median]].to_numpy()
+            xs, coverage = interval_coverage_by_level(y, low, high, center, n_bins)
+            fig.add_trace(
+                go.Scatter(
+                    x=xs,
+                    y=coverage,
+                    mode="lines+markers",
+                    line=dict(color=COLORS[name]),
+                    name=name,
+                    showlegend=j == 1,
+                ),
+                row=1,
+                col=j,
+            )
+        fig.update_xaxes(title_text="predicted median (MW)", row=1, col=j)
+    fig.update_yaxes(
+        title_text=f"observed coverage of the {q_low}-{q_high} interval",
+        range=[0, 1],
+        row=1,
+        col=1,
+    )
+    fig.update_layout(
+        height=480,
+        title=f"Conditional coverage of the {q_low}-{q_high} interval by predicted "
+        "load, all CV test folds pooled (dashed: nominal level)",
+    )
+    return fig
+
+
 def fig_reliability_by_level(raw, recal, horizon_columns, n_bins, method="bins"):
     """Conditional reliability curves: one panel per quantile.
 
@@ -835,6 +909,15 @@ model can be on the diagonal on average while being miscalibrated in particular 
 with errors cancelling out.</p>
 {reliability}
 
+<h3>Conditional coverage of the interval (by predicted load)</h3>
+<p>The marginal coverage above can hide over-confidence in some regions and under-confidence
+in others. Here the test cases are split into {n_bins} bins of equal size by each model's
+predicted median, and in each bin we compute the observed coverage of the
+{q_low}&ndash;{q_high} interval (the fraction of observations inside it). The dashed line is
+the nominal level. A curve below it means the interval is too narrow at that predicted load,
+above it too wide.</p>
+{interval_coverage}
+
 <h3>Conditional reliability curves, binned (one panel per quantile)</h3>
 <p>One panel per quantile level &tau; (use the dropdown to change the horizon). The test cases
 are split into {n_bins} bins of equal size by predicted value (each model's own predictions);
@@ -927,10 +1010,12 @@ def build_report(output_dir):
                     ).abs().max()
                 ),
             )
-    median_change = (recal[[f"pred_{h}h__q_0.5" for h in horizons]] - raw[[f"pred_{h}h__q_0.5" for h in horizons]]).abs()
-    i, j = median_change.shape
-    row, col = np.unravel_index(median_change.to_numpy().argmax(), (i, j))
-    max_diff_date = str(raw["prediction_time"][row])[:16]
+    median_change = (
+        recal[[f"pred_{h}h__q_0.5" for h in horizons]]
+        - raw[[f"pred_{h}h__q_0.5" for h in horizons]]
+    ).to_numpy()
+    row, col = np.unravel_index(np.abs(median_change).argmax(), median_change.shape)
+    max_diff_date = str(raw["prediction_time"][int(row)])[:16]
     load = float(raw.select([f"{h}h" for h in horizons]).to_numpy().mean())
     relative_diff = band_diff / load
     reading_path = output_dir / "reading.html"
@@ -938,6 +1023,9 @@ def build_report(output_dir):
     plots = {
         "time_series": fig_time_series(raw, recal, horizon_columns),
         "reliability": fig_reliability(raw, recal, horizon_columns),
+        "interval_coverage": fig_interval_coverage(
+            raw, recal, horizon_columns, n_bins
+        ),
         "reliability_bins": fig_reliability_by_level(
             raw, recal, horizon_columns, n_bins, method="bins"
         ),
