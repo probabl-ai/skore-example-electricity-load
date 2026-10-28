@@ -833,6 +833,23 @@ def tables(raw_scores, recal_scores, horizons, quantiles):
         ],
         mape_rows,
     )
+    mape_split = table(
+        ["test start"]
+        + [f"{h}h {name}" for h in horizons for name in ("raw", "recal.")],
+        [
+            [str(raw_scores["test_start"][s])[:10]]
+            + [
+                value
+                for h in horizons
+                for value in (
+                    -float(raw_scores[f"neg_mape__{h}h"][s]) * 100,
+                    -float(recal_scores[f"neg_mape__{h}h"][s]) * 100,
+                )
+            ]
+            for s in range(raw_scores.height)
+        ],
+        fmt="{:.2f}",
+    )
     pinball_rows = []
     for q in list(quantiles):
         key = f"d2_pinball_score__average__q_{q}"
@@ -863,7 +880,7 @@ def tables(raw_scores, recal_scores, horizons, quantiles):
         f"{h}h {name}" for h in horizons for name in ("raw", "recal.")
     ]
     split = table(split_header, per_split)
-    return interval, mape, pinball, split
+    return interval, mape, mape_split, pinball, split
 
 
 # ---------------------------------------------------------------------------
@@ -899,6 +916,8 @@ coverage {nominal:.2f}).</p>
 averaged over the CV splits. The last column is the change in percentage points
 (negative is better).</p>
 {mape}
+<h3>MAPE of the median for each CV split (%)</h3>
+{mape_split}
 <h3>d2 pinball score (higher is better), averaged over horizons</h3>
 {pinball}
 <h3>Coverage of the {q_low}&ndash;{q_high} interval for each CV split</h3>
@@ -1013,7 +1032,7 @@ def build_report(output_dir):
     n_bins = corrections.filter(pl.col("kind") == "bin").group_by(
         "split", "horizon", "column"
     ).len()["len"].max()
-    interval, mape, pinball, split = tables(
+    interval, mape, mape_split, pinball, split = tables(
         raw_scores, recal_scores, horizons, quantiles
     )
     # how much the recalibration moves the predictions (for the time-series section)
@@ -1081,6 +1100,7 @@ def build_report(output_dir):
             nominal=max(quantiles) - min(quantiles),
             interval=interval,
             mape=mape,
+            mape_split=mape_split,
             pinball=pinball,
             split=split,
             reading=reading,
