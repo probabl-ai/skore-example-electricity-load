@@ -405,6 +405,17 @@ class TimeSeriesSplitter:
         return len(list(self.split(X, y, prediction_time=prediction_time)))
 
 
+def train_test_split(X, y, test_start_date="2025-01-01"):
+    if isinstance(test_start_date, str):
+        test_start_date = datetime.datetime.fromisoformat(test_start_date).astimezone(
+            datetime.UTC
+        )
+    train, test = _split_indices(
+        X, test_start_date=test_start_date, test_length_days=24 * 7
+    )
+    return X[train], X[test], y[train], y[test]
+
+
 def transpose_pred(prediction_date, prediction):
     date = [
         prediction_date + datetime.timedelta(hours=int(c.removesuffix("h")))

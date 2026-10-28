@@ -243,7 +243,6 @@ def fig_time_series(raw, recal, horizon_columns, window_days=14):
     raw, recal = on_hourly_grid(raw), on_hourly_grid(recal)
     quantiles = sorted(next(iter(horizon_columns.values())))
     outer = (quantiles[0], quantiles[-1])
-    inner = (0.25, 0.75) if 0.25 in quantiles and 0.75 in quantiles else None
     median = min(quantiles, key=lambda q: abs(q - 0.5))
     fig = make_subplots(
         rows=2,
@@ -267,8 +266,7 @@ def fig_time_series(raw, recal, horizon_columns, window_days=14):
         for row, (name, preds) in enumerate([("raw", raw), ("recalibrated", recal)], 1):
             color = COLORS[name]
             r, g, b = (int(color[i : i + 2], 16) for i in (1, 3, 5))
-            bands = [(outer, 0.15)] + ([(inner, 0.3)] if inner else [])
-            for (lo, hi), alpha in bands:
+            for (lo, hi), alpha in [(outer, 0.2)]:
                 label = f"{lo}-{hi} quantiles"
                 fig.add_trace(
                     go.Scatter(
@@ -339,11 +337,11 @@ def fig_time_series(raw, recal, horizon_columns, window_days=14):
         last_split_start,
         last_split_start + datetime.timedelta(days=window_days),
     ]
-    fig.update_xaxes(range=window, rangeslider_visible=True, row=2, col=1)
+    fig.update_xaxes(range=window, row=2, col=1)
     fig.update_yaxes(title_text="load (MW)")
-    # shared_yaxes only ties the y axes of subplots in the same row: tie the two rows
-    # (plotly.js shows nothing when matched axes are left on autorange with these
-    # traces, so give an explicit range: all the values of all the horizons)
+    # Same y range on both panels (all the values of all the horizons), and linked
+    # so that zooming y in one panel zooms the other. (A range slider, which we do
+    # not use, prevents zooming y with a selected rectangle when the axes are linked.)
     values = [raw[f"{h}h"] for h in horizons] + [
         preds[c] for preds in (raw, recal) for qs in horizon_columns.values() for c in qs.values()
     ]
@@ -353,8 +351,10 @@ def fig_time_series(raw, recal, horizon_columns, window_days=14):
     fig.update_yaxes(range=[y_min - margin, y_max + margin])
     fig.update_yaxes(matches="y", row=2, col=1)
     fig.update_layout(
-        height=750,
+        height=1000,
+        margin=dict(t=120),
         hovermode="x unified",
+        dragmode="zoom",
         title="Ground truth, median and quantiles over time (target time on the x axis)",
         updatemenus=[
             dict(
@@ -362,8 +362,8 @@ def fig_time_series(raw, recal, horizon_columns, window_days=14):
                 buttons=buttons,
                 x=0.0,
                 xanchor="left",
-                y=1.12,
-                yanchor="top",
+                y=1.0,
+                yanchor="bottom",
                 active=0,
             )
         ],
@@ -784,7 +784,7 @@ PAGE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <title>Recalibration on the electricity load data</title>
 <style>
-  body {{ font-family: sans-serif; max-width: 1200px; margin: 2em auto; line-height: 1.5; padding: 0 1em; }}
+  body {{ font-family: sans-serif; max-width: 1800px; margin: 0.5em auto; line-height: 1.5; padding: 0; }}
   table {{ border-collapse: collapse; margin: 1em 0; }}
   th, td {{ border: 1px solid #ccc; padding: 0.3em 0.7em; text-align: right; }}
   th:first-child, td:first-child {{ text-align: left; }}
@@ -813,11 +813,14 @@ coverage {nominal:.2f}).</p>
 {reading}
 
 <h2>Predictions over time</h2>
-<p>Ground truth (black), median (line) and quantile bands (light: {q_low}&ndash;{q_high},
-darker: 0.25&ndash;0.75), for the raw (top) and recalibrated (bottom) models, concatenating the
-test folds of all the CV splits. The x axis is the target time (prediction time plus
-horizon). Use the dropdown to change the horizon, and the range slider or zoom to change the
-time window (initially two weeks of the last split).</p>
+<p>Ground truth (black), median (line) and the {q_low}&ndash;{q_high} quantile band, for the raw
+(top) and recalibrated (bottom) models, concatenating the test folds of all the CV splits. The x
+axis is the target time (prediction time plus horizon). Use the dropdown to change the horizon.
+Drag a rectangle to zoom in both x and y; double-click to reset. The initial window is two weeks
+of the last split. The two panels look nearly identical because the correction is small: over
+these test folds the recalibrated median differs from the raw one by at most {median_diff:.0f}
+MW, and the interval bounds by at most {band_diff:.0f} MW (about {relative_diff:.1%} of the
+load). Zoom in to see it (for example around {max_diff_date}).</p>
 {time_series}
 
 <h2>Reliability diagrams</h2>
@@ -908,6 +911,28 @@ def build_report(output_dir):
         "split", "horizon", "column"
     ).len()["len"].max()
     interval, pinball, split = tables(raw_scores, recal_scores, horizons, quantiles)
+    # how much the recalibration moves the predictions (for the time-series section)
+    median_diff, band_diff = 0.0, 0.0
+    for h in horizons:
+        median_diff = max(
+            median_diff,
+            float((recal[f"pred_{h}h__q_0.5"] - raw[f"pred_{h}h__q_0.5"]).abs().max()),
+        )
+        for q in (quantiles[0], quantiles[-1]):
+            band_diff = max(
+                band_diff,
+                float(
+                    (
+                        recal[f"pred_{h}h__q_{q}"] - raw[f"pred_{h}h__q_{q}"]
+                    ).abs().max()
+                ),
+            )
+    median_change = (recal[[f"pred_{h}h__q_0.5" for h in horizons]] - raw[[f"pred_{h}h__q_0.5" for h in horizons]]).abs()
+    i, j = median_change.shape
+    row, col = np.unravel_index(median_change.to_numpy().argmax(), (i, j))
+    max_diff_date = str(raw["prediction_time"][row])[:16]
+    load = float(raw.select([f"{h}h" for h in horizons]).to_numpy().mean())
+    relative_diff = band_diff / load
     reading_path = output_dir / "reading.html"
     reading = reading_path.read_text() if reading_path.exists() else ""
     plots = {
@@ -935,6 +960,10 @@ def build_report(output_dir):
             calibration_window=describe_calibration_window(config),
             horizons=", ".join(f"{h}h" for h in horizons),
             quantiles=", ".join(map(str, quantiles)),
+            median_diff=median_diff,
+            band_diff=band_diff,
+            relative_diff=relative_diff,
+            max_diff_date=max_diff_date,
             n_splits=raw_scores.height,
             n_bins=n_bins,
             q_low=min(quantiles),

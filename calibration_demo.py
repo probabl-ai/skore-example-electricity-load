@@ -179,7 +179,9 @@ def plot_time_series(time, y, raw, corrected, start, stop):
             col=1,
         )
     fig.update_yaxes(title_text="load (MW)")
-    fig.update_layout(height=650, hovermode="x unified", title="Test period (two weeks)")
+    fig.update_layout(
+        height=900, hovermode="x unified", dragmode="zoom", title="Test period (two weeks)"
+    )
     return fig
 
 
@@ -444,7 +446,7 @@ PAGE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <title>Recalibrating a quantile regressor</title>
 <style>
-  body {{ font-family: sans-serif; max-width: 1000px; margin: 2em auto; line-height: 1.5; padding: 0 1em; }}
+  body {{ font-family: sans-serif; max-width: 1800px; margin: 0.5em auto; line-height: 1.5; padding: 0; }}
   table {{ border-collapse: collapse; margin: 1em 0; }}
   th, td {{ border: 1px solid #ccc; padding: 0.4em 0.8em; text-align: right; }}
   th:first-child, td:first-child {{ text-align: left; }}
