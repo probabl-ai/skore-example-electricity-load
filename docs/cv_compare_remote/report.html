@@ -1,0 +1,85 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CV comparison: hgb_mean vs tabicl vs chronos2</title>
+<style>
+body { font-family: sans-serif; margin: 2em; }
+table { border-collapse: collapse; margin-bottom: 2em; }
+th, td { padding: 4px 10px; text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<h1>Walk-forward CV comparison</h1>
+<p>MAE / MAPE use the median (point) prediction; pinball-d2, coverage and
+width use all available quantiles ("-" = model has no quantiles).
+All rows across the 5 CV folds are pooled.</p>
+
+<table border="1" cellpadding="4" cellspacing="0">
+<thead><tr><th>metric</th><th>chronos2</th><th>hgb_mean</th><th>tabicl</th><th>tabicl_n4</th><th>tabicl_n8_cap12k</th></tr></thead>
+<tbody>
+<tr><td>coverage_90__12h</td><td>0.8456</td><td>-</td><td>0.9374</td><td>0.9086</td><td>0.8938</td></tr>
+<tr><td>coverage_90__1h</td><td>0.9467</td><td>-</td><td>0.9615</td><td>0.9245</td><td>0.9309</td></tr>
+<tr><td>coverage_90__24h</td><td>0.8589</td><td>-</td><td>0.9609</td><td>0.9227</td><td>0.9281</td></tr>
+<tr><td>coverage_90__average</td><td>0.8838</td><td>-</td><td>0.9533</td><td>0.9186</td><td>0.9176</td></tr>
+<tr><td>mae__12h</td><td>941.2</td><td>995.5</td><td>1352</td><td>1166</td><td>1088</td></tr>
+<tr><td>mae__1h</td><td>391</td><td>545.3</td><td>714.5</td><td>467.3</td><td>449.4</td></tr>
+<tr><td>mae__24h</td><td>1081</td><td>1011</td><td>1461</td><td>1376</td><td>1270</td></tr>
+<tr><td>mae__average</td><td>804.3</td><td>850.5</td><td>1176</td><td>1003</td><td>935.7</td></tr>
+<tr><td>mape__12h</td><td>0.01975</td><td>0.02069</td><td>0.02849</td><td>0.02417</td><td>0.02284</td></tr>
+<tr><td>mape__1h</td><td>0.008275</td><td>0.01147</td><td>0.01493</td><td>0.009728</td><td>0.009433</td></tr>
+<tr><td>mape__24h</td><td>0.02259</td><td>0.02105</td><td>0.03029</td><td>0.02843</td><td>0.02662</td></tr>
+<tr><td>mape__average</td><td>0.01687</td><td>0.01774</td><td>0.02457</td><td>0.02078</td><td>0.01963</td></tr>
+<tr><td>width_90__12h</td><td>3304</td><td>-</td><td>7499</td><td>5729</td><td>4981</td></tr>
+<tr><td>width_90__1h</td><td>2000</td><td>-</td><td>4925</td><td>2414</td><td>2321</td></tr>
+<tr><td>width_90__24h</td><td>4074</td><td>-</td><td>8870</td><td>7158</td><td>6501</td></tr>
+<tr><td>width_90__average</td><td>3126</td><td>-</td><td>7098</td><td>5100</td><td>4601</td></tr>
+<tr><td>d2_pinball_score__12h__q_0.05</td><td>0.7709</td><td>-</td><td>0.5826</td><td>0.6385</td><td>0.6927</td></tr>
+<tr><td>d2_pinball_score__12h__q_0.5</td><td>0.8798</td><td>-</td><td>0.8273</td><td>0.8511</td><td>0.8611</td></tr>
+<tr><td>d2_pinball_score__12h__q_0.95</td><td>0.7755</td><td>-</td><td>0.4482</td><td>0.6138</td><td>0.6525</td></tr>
+<tr><td>d2_pinball_score__1h__q_0.05</td><td>0.8624</td><td>-</td><td>0.7451</td><td>0.8496</td><td>0.8604</td></tr>
+<tr><td>d2_pinball_score__1h__q_0.5</td><td>0.95</td><td>-</td><td>0.9087</td><td>0.9403</td><td>0.9426</td></tr>
+<tr><td>d2_pinball_score__1h__q_0.95</td><td>0.8774</td><td>-</td><td>0.6219</td><td>0.8359</td><td>0.8377</td></tr>
+<tr><td>d2_pinball_score__24h__q_0.05</td><td>0.7095</td><td>-</td><td>0.4589</td><td>0.52</td><td>0.5897</td></tr>
+<tr><td>d2_pinball_score__24h__q_0.5</td><td>0.862</td><td>-</td><td>0.8134</td><td>0.8243</td><td>0.8379</td></tr>
+<tr><td>d2_pinball_score__24h__q_0.95</td><td>0.7371</td><td>-</td><td>0.4016</td><td>0.5526</td><td>0.567</td></tr>
+<tr><td>d2_pinball_score__average__q_0.05</td><td>0.8307</td><td>-</td><td>0.7755</td><td>0.8062</td><td>0.8241</td></tr>
+<tr><td>d2_pinball_score__average__q_0.5</td><td>0.8973</td><td>-</td><td>0.8498</td><td>0.8719</td><td>0.8805</td></tr>
+<tr><td>d2_pinball_score__average__q_0.95</td><td>0.9039</td><td>-</td><td>0.8249</td><td>0.8742</td><td>0.8815</td></tr>
+</tbody>
+</table>
+
+<h1>Plots</h1>
+<p>True vs predicted load per model and horizon (separate pages, linked below
+to keep this page small). For quantile models the plot shows the median as a
+line and the 5%-95% interval as a shaded band.</p>
+<h2>chronos2</h2>
+<ul>
+<li><a href="plots/chronos2_1h.html">1h horizon</a></li>
+<li><a href="plots/chronos2_12h.html">12h horizon</a></li>
+<li><a href="plots/chronos2_24h.html">24h horizon</a></li>
+</ul><h2>hgb_mean</h2>
+<ul>
+<li><a href="plots/hgb_mean_1h.html">1h horizon</a></li>
+<li><a href="plots/hgb_mean_12h.html">12h horizon</a></li>
+<li><a href="plots/hgb_mean_24h.html">24h horizon</a></li>
+</ul><h2>tabicl</h2>
+<ul>
+<li><a href="plots/tabicl_1h.html">1h horizon</a></li>
+<li><a href="plots/tabicl_12h.html">12h horizon</a></li>
+<li><a href="plots/tabicl_24h.html">24h horizon</a></li>
+</ul><h2>tabicl_n4</h2>
+<ul>
+<li><a href="plots/tabicl_n4_1h.html">1h horizon</a></li>
+<li><a href="plots/tabicl_n4_12h.html">12h horizon</a></li>
+<li><a href="plots/tabicl_n4_24h.html">24h horizon</a></li>
+</ul><h2>tabicl_n8_cap12k</h2>
+<ul>
+<li><a href="plots/tabicl_n8_cap12k_1h.html">1h horizon</a></li>
+<li><a href="plots/tabicl_n8_cap12k_12h.html">12h horizon</a></li>
+<li><a href="plots/tabicl_n8_cap12k_24h.html">24h horizon</a></li>
+</ul>
+</body>
+</html>
