@@ -21,17 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from electricity_load_forecasting import diagnostics as dg
 
 IDEAL = "gray"
-PALETTE = ["#d62728", "#1f77b4", "#2ca02c", "#9467bd", "#ff7f0e", "#8c564b"]
-
-
-def color_for(name, i):
-    if "recal" in name:
-        return "#1f77b4"
-    if "tabicl" in name:
-        return "#2ca02c"
-    if "hgb" in name:
-        return "#d62728"
-    return PALETTE[i % len(PALETTE)]
+# Okabe-Ito colorblind-friendly palette; the first four are maximally distinct.
+PALETTE = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00"]
 
 
 def load_models(directory):
@@ -39,9 +30,13 @@ def load_models(directory):
     if not paths:
         raise SystemExit(f"no *_cv_predictions.parquet found in {directory}")
     models = []
-    for i, path in enumerate(paths):
+    for path in paths:
         name = path.stem.removesuffix("_cv_predictions")
-        models.append((name, pl.read_parquet(path), color_for(name, i)))
+        df = pl.read_parquet(path)
+        if not dg.pred_columns(df):
+            print(f"skipping {name}: no quantile predictions")
+            continue
+        models.append((name, df, PALETTE[len(models) % len(PALETTE)]))
     return models
 
 

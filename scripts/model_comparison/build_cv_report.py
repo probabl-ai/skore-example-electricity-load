@@ -21,6 +21,7 @@ import datetime
 from pathlib import Path
 
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import polars as pl
 from compare_predictions import compare, horizons_of, quantile_levels_of
 
@@ -58,14 +59,19 @@ table_html = f"""
 """
 
 
-def make_figure(df, name, h):
-    """True vs predicted for one model/horizon: median line, shaded CI band
-    between the outermost quantiles (if any), instead of one line per
-    quantile."""
+def add_model_traces(fig, df, name, h, *, row=None, col=None, showlegend=True, color=None):
+    """Add true load plus the model prediction (median line and shaded interval
+    between the outermost quantiles, if any) to ``fig``."""
     target_time = df["prediction_time"] + datetime.timedelta(hours=h)
     hover = "%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>"
-    fig = go.Figure()
-    fig.add_trace(
+
+    def add(trace):
+        if row is None:
+            fig.add_trace(trace)
+        else:
+            fig.add_trace(trace, row=row, col=col)
+
+    add(
         go.Scatter(
             x=target_time,
             y=df[f"{h}h"],
@@ -73,6 +79,7 @@ def make_figure(df, name, h):
             line={"dash": "dash", "color": "gray"},
             name="true_load_mw",
             hovertemplate=hover,
+            showlegend=showlegend,
         )
     )
     levels = quantile_levels_of(df, h)
@@ -80,7 +87,7 @@ def make_figure(df, name, h):
         low, high = min(levels), max(levels)
         median = min(levels, key=lambda q: abs(q - 0.5))
         if high > low:
-            fig.add_trace(
+            add(
                 go.Scatter(
                     x=target_time,
                     y=df[f"pred_{h}h__q_{high}"],
@@ -90,7 +97,7 @@ def make_figure(df, name, h):
                     hoverinfo="skip",
                 )
             )
-            fig.add_trace(
+            add(
                 go.Scatter(
                     x=target_time,
                     y=df[f"pred_{h}h__q_{low}"],
@@ -100,28 +107,64 @@ def make_figure(df, name, h):
                     fillcolor="rgba(0, 100, 250, 0.2)",
                     name=f"{round(low * 100)}% - {round(high * 100)}% interval",
                     hoverinfo="skip",
+                    showlegend=showlegend,
                 )
             )
-        fig.add_trace(
+        add(
             go.Scatter(
                 x=target_time,
                 y=df[f"pred_{h}h__q_{median}"],
                 mode="lines",
+                line={} if color is None else {"color": color},
                 name="pred_load_mw (median)",
                 hovertemplate=hover,
+                showlegend=showlegend,
             )
         )
     else:
-        fig.add_trace(
+        add(
             go.Scatter(
                 x=target_time,
                 y=df[f"pred_{h}h"],
                 mode="lines",
+                line={} if color is None else {"color": color},
                 name="pred_load_mw",
                 hovertemplate=hover,
+                showlegend=showlegend,
             )
         )
+
+
+def make_figure(df, name, h):
+    """True vs predicted for one model/horizon."""
+    fig = go.Figure()
+    add_model_traces(fig, df, name, h)
     fig.update_layout(height=600, title=f"{name} -- {h}h horizon: true vs predicted")
+    return fig
+
+
+def make_combined_figure(h):
+    """All models for one horizon, stacked with shared (tied) axes."""
+    fig = make_subplots(
+        rows=len(frames),
+        cols=1,
+        shared_xaxes=True,
+        shared_yaxes=True,
+        vertical_spacing=0.03,
+        subplot_titles=list(frames),
+    )
+    for row, (name, df) in enumerate(frames.items(), 1):
+        add_model_traces(
+            fig, df, name, h, row=row, col=1, showlegend=row == 1, color="#1f77b4"
+        )
+    fig.update_layout(
+        height=350 * len(frames),
+        title=f"All models -- {h}h horizon: true vs predicted",
+    )
+    fig.update_xaxes(title_text="target time", row=len(frames), col=1)
+    fig.update_yaxes(title_text="load (MW)", row=1, col=1)
+    for row in range(2, len(frames) + 1):
+        fig.update_yaxes(matches="y", row=row, col=1)
     return fig
 
 
@@ -138,6 +181,17 @@ for name, df in frames.items():
         links.append(f'<li><a href="plots/{out_name}">{h}h horizon</a></li>')
     sections.append(f"<h2>{name}</h2>\n<ul>\n" + "\n".join(links) + "\n</ul>")
 
+combined_links = []
+for h in horizons_of(next(iter(frames.values()))):
+    out_name = f"all_models_{h}h.html"
+    make_combined_figure(h).write_html(plots_dir / out_name)
+    combined_links.append(f'<li><a href="plots/{out_name}">{h}h horizon</a></li>')
+combined_section = (
+    "<h2>All models per horizon</h2>\n<ul>\n"
+    + "\n".join(combined_links)
+    + "\n</ul>"
+)
+
 calibration_link = (
     '<p><a href="calibration.html">Reliability / calibration diagrams</a></p>'
     if (args.dir / "calibration.html").exists()
@@ -149,12 +203,13 @@ page = f"""
 <html>
 <head>
 <meta charset="utf-8">
-<title>CV comparison: hgb_mean vs tabicl vs chronos2</title>
+<title>Walk-forward CV model comparison</title>
 <style>
 body {{ font-family: sans-serif; margin: 2em; }}
 table {{ border-collapse: collapse; margin-bottom: 2em; }}
 th, td {{ padding: 4px 10px; text-align: right; }}
 th:first-child, td:first-child {{ text-align: left; }}
+tbody tr:hover {{ background-color: #eef3ff; }}
 </style>
 </head>
 <body>
@@ -167,7 +222,9 @@ All rows across the 5 CV folds are pooled.</p>
 <h1>Plots</h1>
 <p>True vs predicted load per model and horizon (separate pages, linked below
 to keep this page small). For quantile models the plot shows the median as a
-line and the 5%-95% interval as a shaded band.</p>
+line and the 5%-95% interval as a shaded band. The combined pages stack all
+models for a horizon with tied axes: zooming one subplot zooms the others.</p>
+{combined_section}
 {"".join(sections)}
 </body>
 </html>

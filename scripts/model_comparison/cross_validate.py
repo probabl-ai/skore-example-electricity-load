@@ -16,7 +16,7 @@ parser.add_argument(
     default=None,
     choices=["tabicl", "multiple_regressors", "binning"],
 )
-parser.add_argument("--max_iter", default=1000, type=int)
+parser.add_argument("--max_iter", default=3000, type=int)
 parser.add_argument(
     "--recalibrate",
     action="store_true",

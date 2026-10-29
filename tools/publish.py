@@ -130,11 +130,12 @@ def report_files():
         files = [
             path for path in directory.glob("*.html") if not SKIP_HTML.match(path.name)
         ]
-        if len(files) == 1:
-            return files
         for child in directory.iterdir():
-            if child.is_dir() and not child.name.startswith("."):
-                files.extend(walk(child))
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            if files and not (child / "index.html").exists():
+                continue
+            files.extend(walk(child))
         return files
 
     files = []

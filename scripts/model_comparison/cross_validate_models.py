@@ -79,7 +79,7 @@ parser.add_argument(
     help="also write the skrub fit/predict/single-date reports",
 )
 # HGB-specific
-parser.add_argument("--max_iter", type=int, default=1000)
+parser.add_argument("--max_iter", type=int, default=3000)
 # chronos2-specific
 parser.add_argument(
     "--forecaster",

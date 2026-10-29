@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import holidays
@@ -395,7 +396,7 @@ def make_data_op(
     quantiles=(0.05, 0.5, 0.95),
     tabicl_n_estimators=1,
     max_train_rows=None,
-    max_iter=1000,
+    max_iter=3000,
     recalibrate=False,
 ):
     """
@@ -627,8 +628,12 @@ def cross_val_predict(data_op, environment=None):
     """
     all_predictions, all_scores = [], []
     for i, split in enumerate(data_op.skb.iter_cv_splits(environment=environment)):
+        t0 = time.perf_counter()
         learner = data_op.skb.make_learner().fit(split["train"])
+        fit_time = time.perf_counter() - t0
+        t0 = time.perf_counter()
         score, prediction = learner.score(split["test"], return_predictions=True)
+        score_time = time.perf_counter() - t0
         all_predictions.append(
             concat_X_y_predictions(
                 split["X_test"], split["y_test"], prediction["predict"]
@@ -636,7 +641,9 @@ def cross_val_predict(data_op, environment=None):
         )
         print(split["X_test"]["prediction_time"].min().isoformat())
         print(score)
-        all_scores.append(score | {"split": i})
+        all_scores.append(
+            score | {"split": i, "fit_time": fit_time, "score_time": score_time}
+        )
     all_predictions = pl.concat(all_predictions, how="vertical")
     all_scores = pl.DataFrame(all_scores)
     return all_predictions, all_scores
