@@ -37,7 +37,7 @@ skore = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/electricity_load_forecasting"]
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64"]
 

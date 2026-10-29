@@ -16,6 +16,9 @@ at the same `--output_dir`:
 python scripts/model_comparison/cross_validate_models.py \
     --model hgb_quantile --output_dir results/model_comparison/my_study
 python scripts/model_comparison/cross_validate_models.py \
+    --model hgb_quantile_recal --max_iter 2000 \
+    --output_dir results/model_comparison/my_study
+python scripts/model_comparison/cross_validate_models.py \
     --model tabicl --output_dir results/model_comparison/my_study
 python scripts/model_comparison/cross_validate_models.py \
     --model chronos2 --device cuda --output_dir results/model_comparison/my_study
@@ -25,6 +28,12 @@ Each run writes `<model>_cv_predictions.parquet` and `<model>_scores.csv`.
 Use `--tag` to keep multiple runs of the same model side by side. Add
 `--reports` to also write the skrub fit/predict/single-date reports for that
 model.
+
+To add the recalibrated HGB to an existing comparison, run the command above
+with `--model hgb_quantile_recal` and the same `--output_dir`; it will then be
+picked up by the report scripts. This is different from
+`scripts/calibration/run_recalibration.py`, which is the in-depth study of the
+recalibrator itself.
 
 `cross_validate.py` is the small convenience wrapper for a single CV run of the
 default pipeline.

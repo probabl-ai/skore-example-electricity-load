@@ -13,6 +13,7 @@ experiment with features of skore and other packages.
   `calibration/`, `model_comparison/`, `tuning/`, `inspection/` and `checks/`.
 - `datasets/` — committed historical load and weather data.
 - `results/` — generated experiment outputs (git-ignored), organized by theme.
+  Legacy pre-reorganization results are kept under `results/old/`.
 - `docs/` — published HTML reports and the experiment index.
 
 Each experiment result directory should contain a short `README.md` describing

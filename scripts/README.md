@@ -12,4 +12,5 @@ root; the `electricity_load_forecasting` package is installed from `src/`.
 - `checks/` — contract and smoke checks for optional model backends.
 
 Results go under `results/<theme>/...` and each experiment directory should have
-a short `README.md` with its provenance. Published HTML reports live in `docs/`.
+a short `README.md` with its provenance. Legacy results are kept under
+`results/old/`. Published HTML reports live in `docs/`.
