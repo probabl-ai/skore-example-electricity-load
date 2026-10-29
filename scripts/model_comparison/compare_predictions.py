@@ -1,11 +1,11 @@
 """
 Compute MAE, MAPE and pinball (d2) scores from `*_cv_predictions.parquet`
-files written by `cross_validate_compare.py`, without re-running any model.
+files written by `cross_validate_models.py`, without re-running any model.
 
 Run from the repository root:
 
-    python scripts/chronos_comparison_scripts/compare_predictions.py \
-        results/cv_compare_2026.../*_cv_predictions.parquet
+    python scripts/model_comparison/compare_predictions.py \
+        results/model_comparison/my_study/*_cv_predictions.parquet
 
 Each input file must have the layout produced by
 `electricity_load_forecasting.concat_X_y_predictions` +

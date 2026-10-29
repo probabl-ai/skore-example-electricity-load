@@ -1,34 +1,11 @@
-"""Compare the multiple_regressors quantile strategy with and without
-``calibration.Recalibrator`` on the real data, with the walk-forward CV.
+"""Report for the raw vs recalibrated walk-forward CV.
 
-    python scripts/calibration/compare_calibration.py                  # run both CVs (slow), write report
-    python scripts/calibration/compare_calibration.py --report_only results/calibration_...  # redo html only
-
-Outputs, in ``results/calibration_<timestamp>/``:
-
-- ``{raw,recalibrated}_cv_predictions.parquet`` and ``{...}_scores.csv``: what
-  ``electricity_load_forecasting.cross_val_predict`` would produce (scores are
-  those reported by the data op: neg_mape, pinball d2, coverage, mean width);
-- ``corrections.parquet``: for each CV split, horizon and quantile, the bins
-  and the fitted correction curve learned by the recalibrator;
-- ``inner_oof.parquet``: the out-of-fold predictions on which the recalibrator
-  is learned (inner CV folds of each split's training set), with the target,
-  ``prediction_time``, ``split``, ``horizon`` and ``inner_fold``;
-- ``n_iter.csv``: number of boosting iterations of each final HGB model
-  (``max_iter`` is reached if early stopping did not trigger);
-- ``index.html``: the report.
-
-The "raw" run is the same pipeline without the recalibrator: with the fixed
-``random_state`` its predictions are identical to those of the recalibrator's
-wrapped model, so it is also the "before" of the recalibrated predictions.
+Reads the files written by ``run_recalibration.py`` and writes ``index.html``.
 """
 
-import argparse
 import datetime
 import html
 import json
-import re
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -36,7 +13,14 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
-import electricity_load_forecasting as elf
+from electricity_load_forecasting import diagnostics as dg
+
+pred_columns = dg.pred_columns
+reliability = dg.reliability
+binned_quantiles = dg.binned_quantiles
+isotonic_quantiles = dg.isotonic_quantiles
+interval_coverage_by_level = dg.interval_coverage_by_level
+panel_range = dg.panel_range
 
 QUANTILES = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
 CORRECTION_LEVELS = (0.95, 0.5, 0.05)
@@ -48,167 +32,11 @@ COLORS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Running the CV
-# ---------------------------------------------------------------------------
-def run_cv(recalibrate, horizons, quantiles, max_iter, env):
-    """Walk-forward CV like ``elf.cross_val_predict``, keeping the corrections."""
-    data_op = elf.make_data_op(
-        horizons=horizons,
-        quantile_strategy="multiple_regressors",
-        quantiles=quantiles,
-        max_iter=max_iter,
-        recalibrate=recalibrate,
-    )
-    predictions, scores, corrections, oofs, n_iters = [], [], [], [], []
-    for i, split in enumerate(data_op.skb.iter_cv_splits(environment=env)):
-        learner = data_op.skb.make_learner().fit(split["train"])
-        score, prediction = learner.score(split["test"], return_predictions=True)
-        test_start = split["X_test"]["prediction_time"].min()
-        print(f"[{'recalibrated' if recalibrate else 'raw'}] split {i}: {test_start}")
-        predictions.append(
-            elf.concat_X_y_predictions(
-                split["X_test"], split["y_test"], prediction["predict"]
-            ).with_columns(split=pl.lit(i))
-        )
-        scores.append(score | {"split": i, "test_start": test_start})
-        for h in horizons:
-            fitted = learner.find_fitted_estimator(f"pred_{h}h")
-            hgb_q = fitted.estimator_ if recalibrate else fitted
-            n_iters += [
-                {"split": i, "horizon": h, "quantile": q, "n_iter": int(e.n_iter_)}
-                for q, e in hgb_q.estimators_.items()
-            ]
-            if recalibrate:
-                corrections.append(corrections_of(fitted, i, h))
-                train_times = split["X_train"]["prediction_time"]
-                oofs.append(
-                    fitted.oof_.with_columns(
-                        prediction_time=train_times[fitted.oof_["row"].to_numpy()],
-                        split=pl.lit(i),
-                        horizon=pl.lit(h),
-                    )
-                )
-    extra = {
-        "corrections": pl.concat(corrections) if corrections else None,
-        "inner_oof": pl.concat(oofs) if oofs else None,
-        "n_iter": pl.DataFrame(n_iters),
-    }
-    return pl.concat(predictions), pl.DataFrame(scores), extra
-
-
-def corrections_of(recalibrator, split, horizon):
-    """Bins (measured shifts) and fitted curve of a fitted Recalibrator."""
-    frames = []
-    for column, summary in recalibrator.bin_summary_.items():
-        x = summary["mean_prediction"].to_numpy()
-        grid = np.linspace(x.min(), x.max(), 50)
-        curve = recalibrator.shift_models_[column].predict(grid[:, None])
-        bins = pl.DataFrame(
-            {
-                "kind": "bin",
-                "x": x,
-                "y": summary["shift"].to_numpy(),
-                "count": summary["count"].to_numpy(),
-                "empirical_coverage": summary["empirical_coverage"].to_numpy(),
-            }
-        )
-        curve = pl.DataFrame(
-            {
-                "kind": "curve",
-                "x": grid,
-                "y": curve,
-                "count": pl.Series([None] * len(grid), dtype=pl.Int64),
-                "empirical_coverage": pl.Series([None] * len(grid), dtype=pl.Float64),
-            }
-        )
-        frames += [
-            part.with_columns(
-                column=pl.lit(column), split=pl.lit(split), horizon=pl.lit(horizon)
-            )
-            for part in (bins, curve)
-        ]
-    return pl.concat(frames)
-
-
-# ---------------------------------------------------------------------------
-# Analysis helpers
-# ---------------------------------------------------------------------------
-def pred_columns(predictions):
-    """{horizon: {quantile: column}}"""
-    found = {}
-    for c in predictions.columns:
-        m = re.fullmatch(r"pred_(\d+)h__q_(.+)", c)
-        if m:
-            found.setdefault(int(m.group(1)), {})[float(m.group(2))] = c
-    return {h: dict(sorted(qs.items())) for h, qs in sorted(found.items())}
-
-
 def mean_scores(scores):
     numeric = scores.drop("split", "test_start")
     return {c: float(numeric[c].mean()) for c in numeric.columns}
 
 
-def reliability(predictions, horizon_columns, horizon):
-    y = predictions[f"{horizon}h"].to_numpy()
-    return {
-        q: float((y <= predictions[c].to_numpy()).mean())
-        for q, c in horizon_columns[horizon].items()
-    }
-
-
-def binned_quantiles(y, prediction, tau, n_bins):
-    """Equal-count bins of the prediction: mean prediction and estimated
-    tau-quantile of y in the bin.
-
-    The latter is "mean prediction + tau-quantile of the residuals (y - p)" in
-    the bin, rather than the plain tau-quantile of y: the predictions vary
-    inside a bin, which would pull the plain quantile of y away from the
-    diagonal (outwards in the tails) even for a calibrated model.
-    """
-    edges = np.unique(np.quantile(prediction, np.linspace(0, 1, n_bins + 1)))
-    bin_ids = np.searchsorted(edges[1:-1], prediction, side="right")
-    xs, quantiles = [], []
-    for b in np.unique(bin_ids):
-        m = bin_ids == b
-        mean_p = float(prediction[m].mean())
-        xs.append(mean_p)
-        quantiles.append(mean_p + float(np.quantile(y[m] - prediction[m], tau)))
-    return xs, quantiles
-
-
-def isotonic_quantiles(prediction, y, tau):
-    """Isotonic (PAV) estimate of the tau-quantile of y given the prediction.
-
-    The cases are sorted by prediction and adjacent blocks are pooled whenever
-    their tau-quantile would decrease, so the result is a monotone step
-    function of the prediction. There is no bin width to choose: the blocks are
-    where the data put them. Cases with the same prediction are pooled first (a
-    step function must give them the same value).
-
-    Returns the mean prediction and the tau-quantile of each block.
-    """
-    order = np.argsort(prediction, kind="stable")
-    p = np.asarray(prediction, dtype=float)[order]
-    obs = np.asarray(y, dtype=float)[order]
-    starts = np.flatnonzero(np.r_[True, p[1:] != p[:-1]])
-    ends = np.r_[starts[1:], len(p)]
-    blocks = []  # stack of [start, end, tau-quantile of the block]
-    for start, end in zip(starts, ends):
-        blocks.append([int(start), int(end), float(np.quantile(obs[start:end], tau))])
-        while len(blocks) >= 2 and blocks[-2][2] > blocks[-1][2]:
-            first = blocks[-2][0]
-            last = blocks[-1][1]
-            blocks[-2:] = [[first, last, float(np.quantile(obs[first:last], tau))]]
-    xs = [float(p[start:end].mean()) for start, end, _ in blocks]
-    quantiles = [value for _, _, value in blocks]
-    return xs, quantiles
-
-
-def panel_range(values):
-    lo, hi = float(np.min(values)), float(np.max(values))
-    margin = 0.02 * (hi - lo)
-    return [lo - margin, hi + margin]
 
 
 # ---------------------------------------------------------------------------
@@ -425,16 +253,6 @@ def fig_reliability(raw, recal, horizon_columns):
     return fig
 
 
-def interval_coverage_by_level(y, low, high, center, n_bins):
-    """Observed coverage of [low, high] in equal-count bins of ``center``."""
-    edges = np.unique(np.quantile(center, np.linspace(0, 1, n_bins + 1)))
-    bin_ids = np.searchsorted(edges[1:-1], center, side="right")
-    xs, coverage = [], []
-    for b in np.unique(bin_ids):
-        m = bin_ids == b
-        xs.append(float(center[m].mean()))
-        coverage.append(float(((y[m] >= low[m]) & (y[m] <= high[m])).mean()))
-    return xs, coverage
 
 
 def fig_interval_coverage(raw, recal, horizon_columns, n_bins):
@@ -1125,71 +943,3 @@ def build_report(output_dir):
         "utf-8",
     )
     print(f"wrote {output_dir / 'index.html'}")
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--max_iter", default=1000, type=int)
-    parser.add_argument(
-        "--reuse_raw",
-        type=Path,
-        help="copy the 'raw' (no recalibration) results from this existing "
-        "output directory instead of recomputing them (max_iter, horizons and "
-        "quantiles must match; checked)",
-    )
-    parser.add_argument("--horizons", default=(1, 12, 24), nargs="+", type=int)
-    parser.add_argument("--quantiles", default=QUANTILES, nargs="+", type=float)
-    parser.add_argument(
-        "--report_only",
-        type=Path,
-        help="only rebuild the report from this existing output directory",
-    )
-    args = parser.parse_args()
-    if args.report_only is not None:
-        build_report(args.report_only)
-        return
-
-    horizons, quantiles = tuple(args.horizons), tuple(args.quantiles)
-    config = dict(
-        max_iter=args.max_iter,
-        # default of calibration.Recalibrator, used by make_data_op
-        n_last_folds=4,
-        horizons=list(horizons),
-        quantiles=list(quantiles),
-    )
-    if args.reuse_raw is not None:
-        # the raw results must come from the same settings
-        reused = read_config(args.reuse_raw)
-        for key in ("max_iter", "horizons", "quantiles"):
-            if reused.get(key) != config[key]:
-                raise SystemExit(
-                    f"--reuse_raw: {key} differs from the reused run "
-                    f"({reused.get(key)!r} there, {config[key]!r} here)"
-                )
-    output_dir = elf.get_output_dir("calibration_")
-    print("output directory:", output_dir)
-    env = elf.get_env()
-    (output_dir / "config.json").write_text(json.dumps(config, indent=2))
-    for recalibrate in (False, True):
-        name = "recalibrated" if recalibrate else "raw"
-        if not recalibrate and args.reuse_raw is not None:
-            for suffix in ("cv_predictions.parquet", "scores.csv", "n_iter.csv"):
-                if (args.reuse_raw / f"raw_{suffix}").exists():  # n_iter: newer runs
-                    shutil.copy(
-                        args.reuse_raw / f"raw_{suffix}", output_dir / f"raw_{suffix}"
-                    )
-            continue
-        predictions, scores, extra = run_cv(
-            recalibrate, horizons, quantiles, args.max_iter, env
-        )
-        predictions.write_parquet(output_dir / f"{name}_cv_predictions.parquet")
-        scores.write_csv(output_dir / f"{name}_scores.csv")
-        extra["n_iter"].write_csv(output_dir / f"{name}_n_iter.csv")
-        if extra["corrections"] is not None:
-            extra["corrections"].write_parquet(output_dir / "corrections.parquet")
-            extra["inner_oof"].write_parquet(output_dir / "inner_oof.parquet")
-    build_report(output_dir)
-
-
-if __name__ == "__main__":
-    main()

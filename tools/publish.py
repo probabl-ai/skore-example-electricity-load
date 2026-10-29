@@ -8,6 +8,15 @@ from urllib.parse import quote
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 SKIP_HTML = re.compile(r"^node_.*\.html$")
+SECTION_TITLES = {
+    "calibration": "Calibration",
+    "model-comparison": "Model comparison",
+    "tuning": "Hyperparameter tuning",
+    "inspection": "Inspection and diagnostics",
+    "checks": "Checks",
+    "misc": "Miscellaneous",
+    "reports": "Other reports",
+}
 
 
 def parse_args():
@@ -26,6 +35,11 @@ def parse_args():
     parser.add_argument(
         "--name",
         help="name in docs/ for the single given source, e.g. calibration-v2",
+    )
+    parser.add_argument(
+        "--theme",
+        help="subdirectory in docs/ for this report, e.g. calibration or "
+        "model-comparison",
     )
     parser.add_argument(
         "--all",
@@ -52,15 +66,16 @@ def check_name(name):
     return path
 
 
-def destination_for(source, name):
+def destination_for(source, name, theme=None):
+    base = DOCS / check_name(theme) if theme else DOCS
     if name:
-        return DOCS / check_name(name)
+        return base / check_name(name)
     if source.is_file() and source.name == "index.html":
         parent = source.parent.name
         if not parent:
             raise SystemExit(f"cannot derive a name from {source}; use --name")
-        return DOCS / parent / "index.html"
-    return DOCS / source.name
+        return base / parent / "index.html"
+    return base / source.name
 
 
 def copy_source(source, destination, copy_all):
@@ -115,6 +130,8 @@ def report_files():
         files = [
             path for path in directory.glob("*.html") if not SKIP_HTML.match(path.name)
         ]
+        if len(files) == 1:
+            return files
         for child in directory.iterdir():
             if child.is_dir() and not child.name.startswith("."):
                 files.extend(walk(child))
@@ -137,32 +154,51 @@ def report_files():
 
 
 def build_index():
-    rows = []
+    groups = {}
     for path in report_files():
         relative = path.relative_to(DOCS)
-        title = html_title(path) or (
-            str(relative.parent) if path.name == "index.html" else path.stem
-        )
-        stat = path.stat()
-        rows.append(
-            "<tr>"
-            f'<td><a href="{quote(relative.as_posix())}" target="_blank" rel="noopener">{html.escape(title)}</a>'
-            f'<div class="path">{html.escape(relative.as_posix())}</div></td>'
-            f"<td>{datetime.fromtimestamp(stat.st_mtime):%Y-%m-%d %H:%M}</td>"
-            f"<td>{human_size(stat.st_size)}</td>"
-            "</tr>"
+        key = relative.parts[0] if len(relative.parts) > 1 else "reports"
+        groups.setdefault(key, []).append(path)
+
+    order = [key for key in SECTION_TITLES if key in groups]
+    order += sorted(key for key in groups if key not in SECTION_TITLES)
+    sections = []
+    for key in order:
+        rows = []
+        for path in groups[key]:
+            relative = path.relative_to(DOCS)
+            title = html_title(path) or (
+                str(relative.parent) if path.name == "index.html" else path.stem
+            )
+            stat = path.stat()
+            rows.append(
+                "<tr>"
+                f'<td><a href="{quote(relative.as_posix())}" target="_blank" rel="noopener">{html.escape(title)}</a>'
+                f'<div class="path">{html.escape(relative.as_posix())}</div></td>'
+                f"<td>{datetime.fromtimestamp(stat.st_mtime):%Y-%m-%d %H:%M}</td>"
+                f"<td>{human_size(stat.st_size)}</td>"
+                "</tr>"
+            )
+        title = SECTION_TITLES.get(key, key.replace("-", " ").title())
+        sections.append(
+            f"<h2>{html.escape(title)}</h2>\n"
+            "<table>"
+            "<thead><tr><th>Report</th><th>Modified</th><th>Size</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody>"
+            "</table>"
         )
 
-    body = "\n".join(rows) if rows else '<tr><td colspan="3">No reports yet.</td></tr>'
+    body = "\n".join(sections) or "<p>No reports yet.</p>"
     index = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Shared experiment reports</title>
+<title>Electricity load forecasting experiments</title>
 <style>
   body {{ font-family: sans-serif; max-width: 1100px; margin: 2em auto; padding: 0 1em; line-height: 1.4; }}
-  h1 {{ font-size: 1.5em; }}
+  h1 {{ font-size: 1.6em; }}
+  h2 {{ font-size: 1.15em; margin-top: 1.8em; border-bottom: 1px solid #ddd; padding-bottom: 0.2em; }}
   table {{ border-collapse: collapse; width: 100%; }}
   th, td {{ border-bottom: 1px solid #ddd; padding: 0.5em; text-align: left; vertical-align: top; }}
   th {{ white-space: nowrap; }}
@@ -170,13 +206,12 @@ def build_index():
 </style>
 </head>
 <body>
-<h1>Shared experiment reports</h1>
-<table>
-<thead><tr><th>Report</th><th>Modified</th><th>Size</th></tr></thead>
-<tbody>
+<h1>Electricity load forecasting experiments</h1>
+<p>Study code lives in <code>scripts/</code>, the core package in
+<code>src/electricity_load_forecasting/</code>, and result provenance in each
+experiment's <code>README.md</code>. This page lists the published reports,
+grouped by theme.</p>
 {body}
-</tbody>
-</table>
 </body>
 </html>
 """
@@ -196,7 +231,7 @@ def main():
     for source in args.sources:
         if not source.exists():
             raise SystemExit(f"no such file or directory: {source}")
-        destination = destination_for(source, args.name)
+        destination = destination_for(source, args.name, args.theme)
         if destination == DOCS / "index.html":
             raise SystemExit(
                 f"{source} would overwrite the landing page at {destination}; "

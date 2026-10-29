@@ -1,15 +1,22 @@
 # %%
 import argparse
 import datetime
+import sys
+from pathlib import Path
 
 import plotly.graph_objects as go
 import polars as pl
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
 import electricity_load_forecasting as elf
+
+OUTPUT_DIR = ROOT / "results" / "inspection"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--quantile_strategy", default="tabicl")
 args = parser.parse_args()
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # %%
 
@@ -44,7 +51,7 @@ fig.add_trace(
 )
 fig.update_layout(height=700, showlegend=False)
 fig.show(renderer="browser")
-fig.write_html("example-mean.html")
+fig.write_html(OUTPUT_DIR / "example-mean.html")
 
 # %%
 pred = elf.make_data_op(
@@ -105,4 +112,4 @@ fig.update_layout(height=700)
 fig.show(renderer="browser")
 
 # %%
-fig.write_html(f"example-{args.quantile_strategy}-90.html")
+fig.write_html(OUTPUT_DIR / f"example-{args.quantile_strategy}-90.html")

@@ -9,12 +9,13 @@ history and the observed load.
 
     python scripts/calibration/single_date_calibration.py --date 2023-12-04T09:00 --n_dates 10
 
-Writes ``single_date_calibration.html``.
+Writes ``results/calibration/single_date_calibration.html``.
 """
 
 import argparse
 import datetime
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -24,13 +25,16 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
 import electricity_load_forecasting as elf
 
 QUANTILES = (0.05, 0.5, 0.95)
 Q_LOW, Q_HIGH = QUANTILES[0], QUANTILES[-1]
 COLORS = {"raw": "#d62728", "recalibrated": "#1f77b4"}
-OUTPUT = Path("single_date_calibration.html")
-DEFAULT_MODELS_DIR = Path("results/single_date_models")
+OUTPUT = ROOT / "results" / "calibration" / "single_date_calibration.html"
+DEFAULT_MODELS_DIR = ROOT / "results" / "calibration" / "single_date_models"
 # different hours of the day for the sampled dates
 HOUR_OFFSETS = (0, 5, 11, 17, 23, 4, 10, 16, 22, 3)
 
@@ -371,6 +375,7 @@ def main():
         n=counts["n"],
         rows="\n".join(rows),
     )
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(head + "\n".join(figures) + PAGE_TAIL, "utf-8")
     print(f"wrote {OUTPUT}")
 

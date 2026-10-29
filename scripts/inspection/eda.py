@@ -1,6 +1,10 @@
+import sys
+from pathlib import Path
+
 import polars as pl
 import skrub
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 
 for csv in sorted(elf.data_dir().glob("*.csv")):

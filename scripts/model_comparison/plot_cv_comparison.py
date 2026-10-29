@@ -1,7 +1,7 @@
 """
 Overlay true vs predicted load for hgb_mean, tabicl and chronos2 on the same
 plot, from the `*_cv_predictions.parquet` files written by
-`cross_validate_compare.py` (no re-running).
+`cross_validate_models.py` (no re-running).
 
 Reuses `elf.plot_predictions`, which already draws one actual-value trace plus
 one line per column matching `pred_{h}h*` -- so the three models' predictions
@@ -12,7 +12,7 @@ duplicated here.
 
 Run from the repository root:
 
-    python scripts/chronos_comparison_scripts/plot_cv_comparison.py results/cv_compare_remote
+    python scripts/model_comparison/plot_cv_comparison.py results/model_comparison/my_study
 
 Writes one HTML file per horizon (1h, 12h, 24h) into `<dir>/plots/`. See also
 `build_cv_report.py` for a report with separate (non-overlaid) plots per

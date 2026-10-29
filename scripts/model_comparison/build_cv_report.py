@@ -1,6 +1,6 @@
 """
 Build an HTML report comparing hgb_mean, tabicl and chronos2 from the
-`*_cv_predictions.parquet` files written by `cross_validate_compare.py` (no
+`*_cv_predictions.parquet` files written by `cross_validate_models.py` (no
 re-running any model): a metrics table (MAE, MAPE, pinball-d2, coverage/width,
 from `compare_predictions.compute_scores`) with links to one true-vs-predicted
 plot per model and horizon.
@@ -11,7 +11,7 @@ quantiles, the plot shows the true load, the median prediction as a line, and
 the outermost quantile interval (e.g. 5%-95%) as a shaded band, rather than a
 separate line per quantile.
 
-    python scripts/chronos_comparison_scripts/build_cv_report.py results/cv_compare_remote
+    python scripts/model_comparison/build_cv_report.py results/model_comparison/my_study
 
 Writes `<dir>/report.html` and `<dir>/plots/<model>_<horizon>h.html`.
 """

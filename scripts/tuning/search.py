@@ -1,20 +1,39 @@
+"""Randomized hyperparameter search with Optuna.
+
+Writes its outputs under ``results/tuning/search_<timestamp>/``.
+"""
+
+import argparse
 import json
 import pickle
+import sys
+from pathlib import Path
 
 from sklearn.metrics import mean_absolute_percentage_error
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 
-output_dir = elf.get_output_dir("search_")
+parser = argparse.ArgumentParser()
+parser.add_argument("--n_trials", type=int, default=100)
+parser.add_argument(
+    "--max_train_rows",
+    type=int,
+    default=None,
+    help="limit each training set to its last this many rows",
+)
+args = parser.parse_args()
+
+output_dir = elf.get_output_dir("tuning/search_")
 env = elf.get_env()
-pred = elf.make_data_op()
+pred = elf.make_data_op(max_train_rows=args.max_train_rows)
 
 storage = f"sqlite:///{output_dir / 'optuna'}"
 study_name = "randomized_search"
 split = pred.skb.train_test_split(environment=env, split_func=elf.train_test_split)
 search = pred.skb.make_randomized_search(
     backend="optuna",
-    n_iter=100,
+    n_iter=args.n_trials,
     n_jobs=1,
     refit=True,
     storage=storage,

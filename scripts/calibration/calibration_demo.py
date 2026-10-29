@@ -4,12 +4,13 @@ Run from the repository root:
 
     python scripts/calibration/calibration_demo.py
 
-Writes ``calibration_demo.html``: a self-contained page (plotly embedded)
-explaining the recalibration and showing the plots.
+Writes ``results/calibration/calibration_demo.html``: a self-contained page
+(plotly embedded) explaining the recalibration and showing the plots.
 """
 
 import datetime
 import html
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -19,13 +20,22 @@ from plotly.subplots import make_subplots
 from sklearn.metrics import mean_absolute_percentage_error, mean_pinball_loss
 from sklearn.model_selection import TimeSeriesSplit
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
 from electricity_load_forecasting import metrics
 from electricity_load_forecasting.calibration import Recalibrator
+from electricity_load_forecasting.diagnostics import (
+    binned_quantiles,
+    interval_coverage_by_level,
+    isotonic_quantiles,
+    panel_range,
+)
 from electricity_load_forecasting.quantile_regressor import HGBQuantileRegressor
 
 QUANTILES = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
 Q_LOW, Q_HIGH = 0.05, 0.95
-OUTPUT = Path("calibration_demo.html")
+OUTPUT = ROOT / "results" / "calibration" / "calibration_demo.html"
 
 
 # ---------------------------------------------------------------------------
@@ -220,73 +230,6 @@ def plot_coverage_curve(y, raw, corrected):
         height=620,
     )
     return fig
-
-
-def binned_quantiles(y, prediction, tau, n_bins):
-    """Equal-count bins of the prediction: mean prediction and estimated
-    tau-quantile of y in the bin.
-
-    The latter is "mean prediction + tau-quantile of the residuals (y - p)" in
-    the bin, rather than the plain tau-quantile of y: the predictions vary
-    inside a bin, which would pull the plain quantile of y away from the
-    diagonal (outwards in the tails) even for a calibrated model.
-    """
-    p = prediction.to_numpy()
-    edges = np.unique(np.quantile(p, np.linspace(0, 1, n_bins + 1)))
-    bin_ids = np.searchsorted(edges[1:-1], p, side="right")
-    xs, quantiles = [], []
-    for b in np.unique(bin_ids):
-        in_bin = bin_ids == b
-        mean_p = float(p[in_bin].mean())
-        xs.append(mean_p)
-        quantiles.append(mean_p + float(np.quantile(y[in_bin] - p[in_bin], tau)))
-    return xs, quantiles
-
-
-def isotonic_quantiles(prediction, y, tau):
-    """Isotonic (PAV) estimate of the tau-quantile of y given the prediction.
-
-    The cases are sorted by prediction and adjacent blocks are pooled whenever
-    their tau-quantile would decrease, so the result is a monotone step
-    function of the prediction. There is no bin width to choose: the blocks are
-    where the data put them. Cases with the same prediction are pooled first (a
-    step function must give them the same value).
-
-    Returns the mean prediction and the tau-quantile of each block.
-    """
-    order = np.argsort(prediction, kind="stable")
-    p = np.asarray(prediction, dtype=float)[order]
-    obs = np.asarray(y, dtype=float)[order]
-    starts = np.flatnonzero(np.r_[True, p[1:] != p[:-1]])
-    ends = np.r_[starts[1:], len(p)]
-    blocks = []  # stack of [start, end, tau-quantile of the block]
-    for start, end in zip(starts, ends):
-        blocks.append([int(start), int(end), float(np.quantile(obs[start:end], tau))])
-        while len(blocks) >= 2 and blocks[-2][2] > blocks[-1][2]:
-            first = blocks[-2][0]
-            last = blocks[-1][1]
-            blocks[-2:] = [[first, last, float(np.quantile(obs[first:last], tau))]]
-    xs = [float(p[start:end].mean()) for start, end, _ in blocks]
-    quantiles = [value for _, _, value in blocks]
-    return xs, quantiles
-
-
-def panel_range(values):
-    lo, hi = float(np.min(values)), float(np.max(values))
-    margin = 0.02 * (hi - lo)
-    return [lo - margin, hi + margin]
-
-
-def interval_coverage_by_level(y, low, high, center, n_bins):
-    """Observed coverage of [low, high] in equal-count bins of ``center``."""
-    edges = np.unique(np.quantile(center, np.linspace(0, 1, n_bins + 1)))
-    bin_ids = np.searchsorted(edges[1:-1], center, side="right")
-    xs, coverage = [], []
-    for b in np.unique(bin_ids):
-        m = bin_ids == b
-        xs.append(float(center[m].mean()))
-        coverage.append(float(((y[m] >= low[m]) & (y[m] <= high[m])).mean()))
-    return xs, coverage
 
 
 def plot_interval_coverage(y, raw, corrected, n_bins):
@@ -683,6 +626,7 @@ def main():
             include_plotlyjs=True if i == 0 else False,
             default_width="100%" if key != "coverage_curve" else None,
         )
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(
         PAGE.format(
             n_bins=recalibrator.n_bins,

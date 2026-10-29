@@ -1,5 +1,13 @@
-import argparse
+"""Simple one-model walk-forward CV of the default pipeline.
 
+For multi-model comparisons use ``cross_validate_models.py``.
+"""
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 
 parser = argparse.ArgumentParser()
@@ -19,7 +27,7 @@ args = parser.parse_args()
 
 quantile_strategy = args.quantile_strategy
 
-output_dir = elf.get_output_dir("cross_validate_")
+output_dir = elf.get_output_dir("model_comparison/cross_validate_")
 
 env = elf.get_env()
 pred = elf.make_data_op(
@@ -81,7 +89,6 @@ index = """
     </head>
     <body>
         <ul>
-            <li><a href="report/index.html">data op report</a></li>
             <li><a href="fit_report/index.html">data op fit report</a></li>
             <li><a href="predict_report/index.html">data op predict report</a></li>
             <li><a href="predict_single_date_report/index.html">data op predict a single date report</a></li>

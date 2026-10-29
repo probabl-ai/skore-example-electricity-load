@@ -1,11 +1,10 @@
 """
 Reliability / calibration diagrams for every `*_cv_predictions.parquet` in a
-directory, in the same style as the report built by `compare_calibration.py`
-(coverage curve, conditional interval coverage, conditional reliability curves
-per quantile, binned and isotonic), but overlaying all the models found there
-(e.g. hgb_quantile, hgb_quantile_recal, tabicl).
+directory (coverage curve, conditional interval coverage, conditional
+reliability curves per quantile, binned and isotonic), overlaying all the models
+found there (e.g. hgb_quantile, hgb_quantile_recal, tabicl).
 
-    python scripts/chronos_comparison_scripts/build_calibration_report.py results/cv_compare_tabicl
+    python scripts/model_comparison/build_calibration_report.py results/model_comparison/my_study
 
 Writes `<dir>/calibration.html`.
 """
@@ -19,8 +18,7 @@ import polars as pl
 from plotly.subplots import make_subplots
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "calibration"))
-import compare_calibration as cc
+from electricity_load_forecasting import diagnostics as dg
 
 IDEAL = "gray"
 PALETTE = ["#d62728", "#1f77b4", "#2ca02c", "#9467bd", "#ff7f0e", "#8c564b"]
@@ -48,9 +46,9 @@ def load_models(directory):
 
 
 def check_layout(models):
-    horizon_columns = cc.pred_columns(models[0][1])
+    horizon_columns = dg.pred_columns(models[0][1])
     for name, df, _ in models[1:]:
-        hc = cc.pred_columns(df)
+        hc = dg.pred_columns(df)
         if list(hc) != list(horizon_columns) or {h: list(q) for h, q in hc.items()} != {
             h: list(q) for h, q in horizon_columns.items()
         }:
@@ -82,7 +80,7 @@ def fig_marginal(models, horizon_columns):
             col=j,
         )
         for name, df, color in models:
-            rel = cc.reliability(df, horizon_columns, h)
+            rel = dg.reliability(df, horizon_columns, h)
             fig.add_trace(
                 go.Scatter(
                     x=list(rel),
@@ -131,7 +129,7 @@ def fig_interval(models, horizon_columns, n_bins):
             low = df[horizon_columns[h][q_low]].to_numpy()
             high = df[horizon_columns[h][q_high]].to_numpy()
             center = df[horizon_columns[h][median]].to_numpy()
-            xs, coverage = cc.interval_coverage_by_level(y, low, high, center, n_bins)
+            xs, coverage = dg.interval_coverage_by_level(y, low, high, center, n_bins)
             fig.add_trace(
                 go.Scatter(
                     x=xs,
@@ -194,9 +192,9 @@ def fig_by_level(models, horizon_columns, n_bins, method="bins"):
                 prediction = df[horizon_columns[h][q]].to_numpy()
                 y = df[f"{h}h"].to_numpy()
                 if method == "bins":
-                    curves[(h, q, name)] = cc.binned_quantiles(y, prediction, q, n_bins)
+                    curves[(h, q, name)] = dg.binned_quantiles(y, prediction, q, n_bins)
                 else:
-                    curves[(h, q, name)] = cc.isotonic_quantiles(prediction, y, q)
+                    curves[(h, q, name)] = dg.isotonic_quantiles(prediction, y, q)
     traces_per_horizon = []
     for k, h in enumerate(horizons):
         first = len(fig.data)
@@ -232,7 +230,7 @@ def fig_by_level(models, horizon_columns, n_bins, method="bins"):
     for i, q in enumerate(quantiles):
         row, col = divmod(i, n_cols)
         row, col = row + 1, col + 1
-        bounds = cc.panel_range(
+        bounds = dg.panel_range(
             [
                 v
                 for h in horizons

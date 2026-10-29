@@ -5,20 +5,28 @@ This example is adapted from https://github.com/probabl-ai/forecasting.
 The goal is to have a dataset and prediction pipeline that can be used to
 experiment with features of skore and other packages.
 
-## Contents
+## Layout
 
-For simplicity, historical data is stored in the repo in `datasets`. Outputs can
-be stored in `results` (ignored by git). `electricity_load_forecasting.py`
-contains functions for loading data, defining the pipeline, cross-validation
-splits etc. . `eda.py`, `cross_validate.py` and `search.py` are scripts that
-perform basic exploratory data analysis, cross-validating the default pipeline,
-running hyperparameter search & scoring the best model on a held-out set.
+- `src/electricity_load_forecasting/` — core package: data loading, feature
+  engineering, the skrub DataOp pipeline, CV splitter, metrics and plotting.
+- `scripts/` — analysis code grouped by study/theme:
+  `calibration/`, `model_comparison/`, `tuning/`, `inspection/` and `checks/`.
+- `datasets/` — committed historical load and weather data.
+- `results/` — generated experiment outputs (git-ignored), organized by theme.
+- `docs/` — published HTML reports and the experiment index.
 
-`requirements.txt` lists a few packages used in the scripts.
+Each experiment result directory should contain a short `README.md` describing
+what was run, when, and with which settings.
 
+## Quick start
 
-The current version of the pipeline looks like this:
+With pixi:
 
-![](graph.png)
+```bash
+pixi install
+pixi run python scripts/model_comparison/cross_validate.py
+pixi run python scripts/model_comparison/cross_validate_models.py \
+    --model hgb_quantile --output_dir results/model_comparison/my_study
+```
 
-See the report for an actual run [here](https://probabl-ai.github.io/skore-example-electricity-load/full_report/index.html)
+See the published reports and experiment overview in `docs/index.html`.

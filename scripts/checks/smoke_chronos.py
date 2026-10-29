@@ -6,9 +6,9 @@ It checks the parts that are ours rather than Chronos's: window construction,
 alignment of horizons, causality, the DataOp contract (fit / predict / single
 date / scoring) in mean and quantile modes.
 
-    python scripts/chronos_comparison_scripts/smoke_chronos.py
-    python scripts/chronos_comparison_scripts/smoke_chronos.py --forecaster chronos --model autogluon/chronos-2-small
-    python scripts/chronos_comparison_scripts/smoke_chronos.py --forecaster chronos --device cuda --n_rows 200
+    python scripts/checks/smoke_chronos.py
+    python scripts/checks/smoke_chronos.py --forecaster chronos --model autogluon/chronos-2-small
+    python scripts/checks/smoke_chronos.py --forecaster chronos --device cuda --n_rows 200
 
 With `--forecaster chronos` the real model additionally forecasts `--n_rows`
 prediction times starting 2025-01-01, with and without covariates.
@@ -16,10 +16,13 @@ prediction times starting 2025-01-01, with and without covariates.
 
 import argparse
 import datetime
+import sys
+from pathlib import Path
 
 import numpy as np
 import polars as pl
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 from electricity_load_forecasting import chronos as cf
 
