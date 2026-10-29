@@ -40,20 +40,16 @@ def load_models(directory):
     return models
 
 
-def check_layout(models):
-    horizon_columns = dg.pred_columns(models[0][1])
+def check_horizons(models):
+    horizons = sorted(dg.pred_columns(models[0][1]))
     for name, df, _ in models[1:]:
-        hc = dg.pred_columns(df)
-        if list(hc) != list(horizon_columns) or {h: list(q) for h, q in hc.items()} != {
-            h: list(q) for h, q in horizon_columns.items()
-        }:
-            raise SystemExit(f"{name}: horizons/quantiles differ from {models[0][0]}")
-    return horizon_columns
+        if sorted(dg.pred_columns(df)) != horizons:
+            raise SystemExit(f"{name}: horizons differ from {models[0][0]}")
+    return horizons
 
 
-def fig_marginal(models, horizon_columns):
+def fig_marginal(models, horizons):
     """Coverage curve (marginal reliability), one panel per horizon."""
-    horizons = list(horizon_columns)
     fig = make_subplots(
         rows=1,
         cols=len(horizons),
@@ -75,7 +71,7 @@ def fig_marginal(models, horizon_columns):
             col=j,
         )
         for name, df, color in models:
-            rel = dg.reliability(df, horizon_columns, h)
+            rel = dg.reliability(df, dg.pred_columns(df), h)
             fig.add_trace(
                 go.Scatter(
                     x=list(rel),
@@ -97,10 +93,9 @@ def fig_marginal(models, horizon_columns):
     return fig
 
 
-def fig_interval(models, horizon_columns, n_bins):
+def fig_interval(models, horizons, n_bins):
     """Coverage of the outermost interval, in equal-count bins of the median."""
-    horizons = list(horizon_columns)
-    quantiles = sorted(next(iter(horizon_columns.values())))
+    quantiles = sorted(next(iter(dg.pred_columns(models[0][1]).values())))
     q_low, q_high = quantiles[0], quantiles[-1]
     median = min(quantiles, key=lambda q: abs(q - 0.5))
     nominal = q_high - q_low
@@ -120,10 +115,13 @@ def fig_interval(models, horizon_columns, n_bins):
             exclude_empty_subplots=False,
         )
         for name, df, color in models:
+            hc = dg.pred_columns(df)
+            if not {q_low, q_high, median} <= set(hc[h]):
+                continue
             y = df[f"{h}h"].to_numpy()
-            low = df[horizon_columns[h][q_low]].to_numpy()
-            high = df[horizon_columns[h][q_high]].to_numpy()
-            center = df[horizon_columns[h][median]].to_numpy()
+            low = df[hc[h][q_low]].to_numpy()
+            high = df[hc[h][q_high]].to_numpy()
+            center = df[hc[h][median]].to_numpy()
             xs, coverage = dg.interval_coverage_by_level(y, low, high, center, n_bins)
             fig.add_trace(
                 go.Scatter(
@@ -152,14 +150,21 @@ def fig_interval(models, horizon_columns, n_bins):
     return fig
 
 
-def fig_by_level(models, horizon_columns, n_bins, method="bins"):
+def fig_by_level(models, horizons, n_bins, method="bins"):
     """Conditional reliability curves, one panel per quantile.
 
     method="bins": equal-count bins; method="isotonic": PAV step function.
     A perfectly calibrated model lies on the dashed 45 degree diagonal.
     """
-    horizons = list(horizon_columns)
-    quantiles = sorted(next(iter(horizon_columns.values())))
+    quantiles = sorted(
+        {
+            q
+            for _, df, _ in models
+            for hc in [dg.pred_columns(df)]
+            for h in horizons
+            for q in hc[h]
+        }
+    )
     n_cols = 4
     n_rows = -(-len(quantiles) // n_cols)
     fig = make_subplots(
@@ -184,7 +189,10 @@ def fig_by_level(models, horizon_columns, n_bins, method="bins"):
     for h in horizons:
         for q in quantiles:
             for name, df, _ in models:
-                prediction = df[horizon_columns[h][q]].to_numpy()
+                hc = dg.pred_columns(df)
+                if q not in hc[h]:
+                    continue
+                prediction = df[hc[h][q]].to_numpy()
                 y = df[f"{h}h"].to_numpy()
                 if method == "bins":
                     curves[(h, q, name)] = dg.binned_quantiles(y, prediction, q, n_bins)
@@ -197,6 +205,8 @@ def fig_by_level(models, horizon_columns, n_bins, method="bins"):
             row, col = divmod(i, n_cols)
             row, col = row + 1, col + 1
             for name, _, color in models:
+                if (h, q, name) not in curves:
+                    continue
                 xs, ys = curves[(h, q, name)]
                 if method == "bins":
                     trace = go.Scatter(
@@ -230,6 +240,7 @@ def fig_by_level(models, horizon_columns, n_bins, method="bins"):
                 v
                 for h in horizons
                 for name, _, _ in models
+                if (h, q, name) in curves
                 for part in curves[(h, q, name)]
                 for v in part
             ]
@@ -341,15 +352,23 @@ def main():
     args = parser.parse_args()
 
     models = load_models(args.dir)
-    horizon_columns = check_layout(models)
-    quantiles = sorted(next(iter(horizon_columns.values())))
+    horizons = check_horizons(models)
+    quantiles = sorted(
+        {
+            q
+            for _, df, _ in models
+            for hc in [dg.pred_columns(df)]
+            for h in horizons
+            for q in hc[h]
+        }
+    )
     n_bins = args.n_bins
 
     plots = {
-        "marginal": fig_marginal(models, horizon_columns),
-        "interval": fig_interval(models, horizon_columns, n_bins),
-        "binned": fig_by_level(models, horizon_columns, n_bins, method="bins"),
-        "isotonic": fig_by_level(models, horizon_columns, n_bins, method="isotonic"),
+        "marginal": fig_marginal(models, horizons),
+        "interval": fig_interval(models, horizons, n_bins),
+        "binned": fig_by_level(models, horizons, n_bins, method="bins"),
+        "isotonic": fig_by_level(models, horizons, n_bins, method="isotonic"),
     }
     parts = {
         k: f.to_html(full_html=False, include_plotlyjs=i == 0)

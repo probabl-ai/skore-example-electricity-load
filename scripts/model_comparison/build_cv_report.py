@@ -18,10 +18,10 @@ Writes `<dir>/report.html` and `<dir>/plots/<model>_<horizon>h.html`.
 
 import argparse
 import datetime
+from html import escape
 from pathlib import Path
 
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import polars as pl
 from compare_predictions import compare, horizons_of, quantile_levels_of
 
@@ -35,23 +35,40 @@ if not paths:
 frames = {p.stem.removesuffix("_cv_predictions"): pl.read_parquet(p) for p in paths}
 
 results, table = compare(paths)
-metric_order = table["metric"].to_list()
+
+
+def keep_metric(metric):
+    """Only show the 5/50/95% pinball scores and the 90% interval coverage."""
+    if "__q_" in metric:
+        return float(metric.rsplit("__q_", 1)[1]) in {0.05, 0.5, 0.95}
+    if metric.startswith(("coverage_", "width_")):
+        return metric.startswith(("coverage_90__", "width_90__"))
+    return True
+
+
+metric_order = [m for m in table["metric"].to_list() if keep_metric(m)]
 
 table_rows = "\n".join(
     "<tr><td>{}</td>{}</tr>".format(
         metric,
         "".join(
-            f"<td>{results[name].get(metric):.4g}</td>"
-            if results[name].get(metric) is not None
-            else "<td>-</td>"
-            for name in frames
+            (
+                f'<td data-col="{i}">{results[name].get(metric):.4g}</td>'
+                if results[name].get(metric) is not None
+                else f'<td data-col="{i}">-</td>'
+            )
+            for i, name in enumerate(frames)
         ),
     )
     for metric in metric_order
 )
+table_controls = '<div class="controls" id="table-controls">' + "".join(
+    f'<label><input type="checkbox" data-col="{i}" checked> {escape(name)}</label>'
+    for i, name in enumerate(frames)
+) + "</div>"
 table_html = f"""
 <table border="1" cellpadding="4" cellspacing="0">
-<thead><tr><th>metric</th>{"".join(f"<th>{n}</th>" for n in frames)}</tr></thead>
+<thead><tr><th>metric</th>{"".join(f'<th data-col="{i}">{escape(n)}</th>' for i, n in enumerate(frames))}</tr></thead>
 <tbody>
 {table_rows}
 </tbody>
@@ -143,29 +160,120 @@ def make_figure(df, name, h):
     return fig
 
 
-def make_combined_figure(h):
-    """All models for one horizon, stacked with shared (tied) axes."""
-    fig = make_subplots(
-        rows=len(frames),
-        cols=1,
-        shared_xaxes=True,
-        shared_yaxes=True,
-        vertical_spacing=0.03,
-        subplot_titles=list(frames),
-    )
-    for row, (name, df) in enumerate(frames.items(), 1):
-        add_model_traces(
-            fig, df, name, h, row=row, col=1, showlegend=row == 1, color="#1f77b4"
+def write_combined_page(path, h):
+    """One page per horizon with each model in its own stacked chart.
+
+    The charts share the same initial x/y ranges and their zoom/pan is kept in
+    sync with a small relayout listener. Checkboxes hide individual models.
+    """
+    names = list(frames)
+    xs, ys = [], []
+    for df in frames.values():
+        target_time = df["prediction_time"] + datetime.timedelta(hours=h)
+        xs.extend([target_time.min(), target_time.max()])
+        columns = [f"{h}h"] + [
+            c for c in df.columns if c.startswith(f"pred_{h}h")
+        ]
+        for c in columns:
+            ys.extend([df[c].min(), df[c].max()])
+    x0, x1 = min(xs).isoformat(), max(xs).isoformat()
+    y0, y1 = float(min(ys)), float(max(ys))
+    pad = 0.02 * (y1 - y0)
+    y0, y1 = y0 - pad, y1 + pad
+
+    parts = []
+    for i, (name, df) in enumerate(frames.items()):
+        fig = make_figure(df, name, h)
+        fig.update_layout(
+            height=330,
+            margin=dict(t=45, b=30, l=60, r=20),
+            showlegend=False,
+            title_font_size=14,
         )
-    fig.update_layout(
-        height=350 * len(frames),
-        title=f"All models -- {h}h horizon: true vs predicted",
+        fig.update_xaxes(range=[x0, x1])
+        fig.update_yaxes(range=[y0, y1])
+        fig_html = fig.to_html(
+            full_html=False,
+            include_plotlyjs=i == 0,
+            div_id=f"plot-{i}",
+            config={"responsive": True, "displaylogo": False},
+        )
+        parts.append(
+            f'<div class="model" data-model="{i}">'
+            f'<div class="model-label">{escape(name)}</div>{fig_html}</div>'
+        )
+
+    boxes = "".join(
+        f'<label><input type="checkbox" data-model="{i}" checked> {escape(name)}</label>'
+        for i, name in enumerate(names)
     )
-    fig.update_xaxes(title_text="target time", row=len(frames), col=1)
-    fig.update_yaxes(title_text="load (MW)", row=1, col=1)
-    for row in range(2, len(frames) + 1):
-        fig.update_yaxes(matches="y", row=row, col=1)
-    return fig
+    js = """
+<script>
+const plots = Array.from({length: %d}, (_, i) => document.getElementById('plot-' + i));
+let syncing = false;
+function syncFrom(src, ev) {
+  if (syncing) return;
+  const upd = {};
+  let has = false;
+  for (const ax of ['xaxis', 'yaxis']) {
+    const r0 = ev[ax + '.range[0]'];
+    const r1 = ev[ax + '.range[1]'];
+    if (r0 !== undefined && r1 !== undefined) {
+      upd[ax + '.range'] = [r0, r1];
+      has = true;
+    } else if (ev[ax + '.autorange']) {
+      upd[ax + '.autorange'] = true;
+      has = true;
+    }
+  }
+  if (!has) return;
+  syncing = true;
+  Promise.all(
+    plots.filter(p => p && p !== src).map(p => Plotly.relayout(p, upd))
+  ).finally(() => { syncing = false; });
+}
+plots.forEach(p => { if (p) p.on('plotly_relayout', ev => syncFrom(p, ev)); });
+document.querySelectorAll('.controls input').forEach(cb => {
+  cb.addEventListener('change', () => {
+    const el = document.querySelector('.model[data-model="' + cb.dataset.model + '"]');
+    el.style.display = cb.checked ? '' : 'none';
+  });
+});
+</script>
+""" % len(names)
+    page = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>All models -- {h}h horizon</title>
+<style>
+body {{ font-family: sans-serif; margin: 1em 2em; }}
+.controls {{ margin-bottom: 0.8em; }}
+.controls label {{ margin-right: 1em; white-space: nowrap; }}
+.model-label {{ font-weight: bold; margin-top: 0.6em; }}
+.legend {{ margin-bottom: 0.8em; font-size: 0.9em; }}
+.legend .swatch {{ display: inline-block; width: 1.5em; height: 0.9em; margin: 0 0.3em 0 1.2em; vertical-align: middle; }}
+.legend .swatch.true {{ border-top: 2px dashed #888; height: 0; }}
+.legend .swatch.pred {{ border-top: 2px solid #1f77b4; height: 0; }}
+.legend .swatch.band {{ background: rgba(0, 100, 250, 0.2); }}
+</style>
+</head>
+<body>
+<h1>All models -- {h}h horizon: true vs predicted</h1>
+<p>Zoom or pan any chart to apply the same range to all charts. Uncheck a
+model to hide it.</p>
+<div class="controls">{boxes}</div>
+<div class="legend">
+<span class="swatch true"></span>true load
+<span class="swatch pred"></span>predicted median
+<span class="swatch band"></span>5&ndash;95% interval
+</div>
+{"".join(parts)}
+{js}
+</body>
+</html>
+"""
+    path.write_text(page, "utf-8")
 
 
 plots_dir = args.dir / "plots"
@@ -184,7 +292,7 @@ for name, df in frames.items():
 combined_links = []
 for h in horizons_of(next(iter(frames.values()))):
     out_name = f"all_models_{h}h.html"
-    make_combined_figure(h).write_html(plots_dir / out_name)
+    write_combined_page(plots_dir / out_name, h)
     combined_links.append(f'<li><a href="plots/{out_name}">{h}h horizon</a></li>')
 combined_section = (
     "<h2>All models per horizon</h2>\n<ul>\n"
@@ -198,6 +306,17 @@ calibration_link = (
     else ""
 )
 
+table_js = """<script>
+document.querySelectorAll('#table-controls input').forEach(cb => {
+  cb.addEventListener('change', () => {
+    const i = cb.dataset.col;
+    document.querySelectorAll('th[data-col="' + i + '"], td[data-col="' + i + '"]').forEach(el => {
+      el.style.display = cb.checked ? '' : 'none';
+    });
+  });
+});
+</script>"""
+
 page = f"""
 <!DOCTYPE html>
 <html>
@@ -210,22 +329,26 @@ table {{ border-collapse: collapse; margin-bottom: 2em; }}
 th, td {{ padding: 4px 10px; text-align: right; }}
 th:first-child, td:first-child {{ text-align: left; }}
 tbody tr:hover {{ background-color: #eef3ff; }}
+.controls {{ margin-bottom: 0.8em; }}
+.controls label {{ margin-right: 1em; white-space: nowrap; }}
 </style>
 </head>
 <body>
 <h1>Walk-forward CV comparison</h1>
 <p>MAE / MAPE use the median (point) prediction; pinball-d2, coverage and
 width use all available quantiles ("-" = model has no quantiles).
-All rows across the 5 CV folds are pooled.</p>
+All rows across the 8 CV folds are pooled.</p>
+{table_controls}
 {table_html}
 {calibration_link}
 <h1>Plots</h1>
 <p>True vs predicted load per model and horizon (separate pages, linked below
 to keep this page small). For quantile models the plot shows the median as a
 line and the 5%-95% interval as a shaded band. The combined pages stack all
-models for a horizon with tied axes: zooming one subplot zooms the others.</p>
+models for a horizon with tied axes: zooming one chart zooms the others.</p>
 {combined_section}
 {"".join(sections)}
+{table_js}
 </body>
 </html>
 """
