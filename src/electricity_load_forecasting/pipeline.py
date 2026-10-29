@@ -14,8 +14,8 @@ from sklearn.metrics import mean_absolute_percentage_error, d2_pinball_score
 from sklearn.ensemble import HistGradientBoostingRegressor
 import plotly.graph_objects as go
 
-from calibration import Recalibrator
-from quantile_regressor import BinnedQuantileRegressor, HGBQuantileRegressor
+from .calibration import Recalibrator
+from .quantile_regressor import BinnedQuantileRegressor, HGBQuantileRegressor
 
 _ALL_CITIES = (
     "paris",
@@ -33,7 +33,8 @@ _TRAIN_TEST_GAP_DAYS = 7
 
 
 def project_dir():
-    return Path(__file__).parent
+    # repository root: src/electricity_load_forecasting/pipeline.py
+    return Path(__file__).resolve().parents[2]
 
 
 def data_dir():

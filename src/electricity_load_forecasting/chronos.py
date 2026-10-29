@@ -32,7 +32,7 @@ from polars import selectors as cs
 import skrub
 from sklearn.base import BaseEstimator, RegressorMixin
 
-import electricity_load_forecasting as elf
+from . import pipeline as elf
 
 _CALENDAR_COLUMNS = (
     "cal_hour_of_day",

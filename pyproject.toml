@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "electricity-load-forecasting"
+version = "0.1.0"
+description = "French electricity load forecasting experiments with skore and skrub"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "holidays",
+    "numpy",
+    "plotly",
+    "polars>=1.44,<2",
+    "scikit-learn",
+    "scipy",
+    "skrub",
+]
+
+[project.optional-dependencies]
+chronos = [
+    "chronos-forecasting",
+    "torch",
+]
+tabicl = [
+    "tabicl",
+]
+scripts = [
+    "joblib",
+    "optuna",
+    "optuna-dashboard",
+    "pandas",
+    "pyarrow",
+    "pydot",
+    "python-dotenv",
+    "skore",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/electricity_load_forecasting"]
