@@ -1,5 +1,6 @@
 .env
 results/
+_scratch/
 graph.svg
 notebooks/*.html
 notebooks/*.pickle
@@ -76,7 +77,3 @@ jupyterlite_contents
 # python virtual environment
 .venv
 venv
-
-# misc
-
-TABICL_COMPARISON.md
