@@ -26,9 +26,9 @@ from pathlib import Path
 import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-import electricity_load_forecasting as elf
-
 from compare_predictions import horizons_of, quantile_levels_of
+
+import electricity_load_forecasting as elf
 
 parser = argparse.ArgumentParser()
 parser.add_argument("dir", type=Path)
@@ -58,7 +58,9 @@ for name, df in frames.items():
     )
     combined = combined.join(renamed, on="prediction_time", how="inner")
 
-assert combined.height == first_df.height, "predictions could not be aligned by prediction_time"
+assert combined.height == first_df.height, (
+    "predictions could not be aligned by prediction_time"
+)
 
 output_dir = args.dir / "plots"
 output_dir.mkdir(exist_ok=True)

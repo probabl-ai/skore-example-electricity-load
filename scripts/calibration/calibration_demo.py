@@ -95,10 +95,7 @@ def interval_metrics(y, pred):
     """Coverage and mean width of the [Q_LOW, Q_HIGH] interval, via metrics."""
     y_df = pl.DataFrame({"1h": y})
     pred_df = pl.DataFrame(
-        {
-            f"1h__q_{q}": pred[f"q_{q}"].to_numpy()
-            for q in (Q_LOW, Q_HIGH)
-        }
+        {f"1h__q_{q}": pred[f"q_{q}"].to_numpy() for q in (Q_LOW, Q_HIGH)}
     )
     kwargs = dict(q_low=Q_LOW, q_high=Q_HIGH)
     # each returns a one-entry dict (a single "1h" column here)
@@ -137,7 +134,9 @@ def plot_time_series(time, y, raw, corrected, start, stop):
         lo = pred[f"q_{Q_LOW}"].to_numpy()[sl]
         hi = pred[f"q_{Q_HIGH}"].to_numpy()[sl]
         fig.add_trace(
-            go.Scatter(x=t, y=hi, line=dict(width=0), showlegend=False, hoverinfo="skip"),
+            go.Scatter(
+                x=t, y=hi, line=dict(width=0), showlegend=False, hoverinfo="skip"
+            ),
             row=row,
             col=1,
         )
@@ -180,7 +179,10 @@ def plot_time_series(time, y, raw, corrected, start, stop):
         )
     fig.update_yaxes(title_text="load (MW)")
     fig.update_layout(
-        height=900, hovermode="x unified", dragmode="zoom", title="Test period (two weeks)"
+        height=900,
+        hovermode="x unified",
+        dragmode="zoom",
+        title="Test period (two weeks)",
     )
     return fig
 
@@ -263,9 +265,7 @@ def isotonic_quantiles(prediction, y, tau):
         while len(blocks) >= 2 and blocks[-2][2] > blocks[-1][2]:
             first = blocks[-2][0]
             last = blocks[-1][1]
-            blocks[-2:] = [
-                [first, last, float(np.quantile(obs[first:last], tau))]
-            ]
+            blocks[-2:] = [[first, last, float(np.quantile(obs[first:last], tau))]]
     xs = [float(p[start:end].mean()) for start, end, _ in blocks]
     quantiles = [value for _, _, value in blocks]
     return xs, quantiles
@@ -399,7 +399,9 @@ def _conditional_reliability(y, raw, corrected, estimate, title, step):
             col=col,
         )
         if col == 1:
-            fig.update_yaxes(title_text="estimated &tau;-quantile of y (MW)", row=row, col=col)
+            fig.update_yaxes(
+                title_text="estimated &tau;-quantile of y (MW)", row=row, col=col
+            )
     fig.update_layout(height=360 * n_rows + 130, title=title)
     return fig
 
@@ -442,7 +444,10 @@ def plot_shifts(recalibrator):
                 mode="markers",
                 marker=dict(color=color, size=10),
                 customdata=np.column_stack(
-                    [summary["count"].to_numpy(), summary["empirical_coverage"].to_numpy()]
+                    [
+                        summary["count"].to_numpy(),
+                        summary["empirical_coverage"].to_numpy(),
+                    ]
                 ),
                 hovertemplate="mean prediction %{x:.1f}<br>shift %{y:.2f}"
                 "<br>%{customdata[0]} points"
@@ -646,7 +651,9 @@ def main():
     rows = []
     for name, pred in [("raw", raw), ("recalibrated", corrected)]:
         cov, width = interval_metrics(y_test, pred)
-        print(name, {q: round(v, 3) for q, v in empirical_coverage(y_test, pred).items()})
+        print(
+            name, {q: round(v, 3) for q, v in empirical_coverage(y_test, pred).items()}
+        )
         mape = 100 * mean_absolute_percentage_error(y_test, pred["q_0.5"].to_numpy())
         rows.append((name, cov, width, mean_pinball(y_test, pred), mape))
         print(

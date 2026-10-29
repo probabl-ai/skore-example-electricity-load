@@ -1,3 +1,5 @@
+# %%
+import argparse
 import datetime
 
 import plotly.graph_objects as go
@@ -5,10 +7,8 @@ import polars as pl
 
 import electricity_load_forecasting as elf
 
-# %%
-import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--quantile_strategy', default='tabicl')
+parser.add_argument("--quantile_strategy", default="tabicl")
 args = parser.parse_args()
 
 # %%
@@ -44,7 +44,7 @@ fig.add_trace(
 )
 fig.update_layout(height=700, showlegend=False)
 fig.show(renderer="browser")
-fig.write_html('example-mean.html')
+fig.write_html("example-mean.html")
 
 # %%
 pred = elf.make_data_op(
@@ -72,33 +72,37 @@ fig.add_trace(
         x=prediction["time"],
         y=prediction["q_0.5"],
         mode="lines+markers",
-        name="median prediction"
+        name="median prediction",
     )
 )
 
-fig.add_trace(go.Scatter(
-    x=prediction['time'],
-    y=prediction['q_0.95'],
-    mode='lines',
-    line=dict(width=0),
-    showlegend=False,
-    hoverinfo='skip'
-))
+fig.add_trace(
+    go.Scatter(
+        x=prediction["time"],
+        y=prediction["q_0.95"],
+        mode="lines",
+        line=dict(width=0),
+        showlegend=False,
+        hoverinfo="skip",
+    )
+)
 
-fig.add_trace(go.Scatter(
-    x=prediction['time'],
-    y=prediction['q_0.05'],
-    mode='lines',
-    line=dict(width=0),
-    fill='tonexty',
-    fillcolor='rgba(0, 100, 250, 0.2)',
-    showlegend=True,
-    hoverinfo='skip',
-    name='5% - 95% confidence interval'
-))
+fig.add_trace(
+    go.Scatter(
+        x=prediction["time"],
+        y=prediction["q_0.05"],
+        mode="lines",
+        line=dict(width=0),
+        fill="tonexty",
+        fillcolor="rgba(0, 100, 250, 0.2)",
+        showlegend=True,
+        hoverinfo="skip",
+        name="5% - 95% confidence interval",
+    )
+)
 
 fig.update_layout(height=700)
 fig.show(renderer="browser")
 
 # %%
-fig.write_html(f'example-{args.quantile_strategy}-90.html')
+fig.write_html(f"example-{args.quantile_strategy}-90.html")

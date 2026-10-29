@@ -1,22 +1,22 @@
-import functools
-import re
 import datetime
+import functools
 import json
-from pathlib import Path
+import re
 import subprocess
 import sys
+from pathlib import Path
 
 import holidays
-import polars as pl
-from polars import selectors as cs
-import skrub
-from sklearn.ensemble import HistGradientBoostingRegressor
 import plotly.graph_objects as go
+import polars as pl
+import skrub
+from polars import selectors as cs
+from sklearn.ensemble import HistGradientBoostingRegressor
 
 from .calibration import Recalibrator
+from .metrics import coverage_scorer, mean_width_scorer, neg_mape_scorer, pinball_scorer
 from .quantile_regressor import BinnedQuantileRegressor, HGBQuantileRegressor
 from .splitter import TimeSeriesSplitter
-from .metrics import neg_mape_scorer, pinball_scorer, coverage_scorer, mean_width_scorer
 
 _ALL_CITIES = (
     "paris",
@@ -78,7 +78,9 @@ def fetch_load_mw_history():
     Returns a dataframe with columns [time, load_mw].
     """
     return (
-        pl.scan_csv(data_dir() / "Total Load - Day Ahead*.csv", null_values=["N/A", "-"])
+        pl.scan_csv(
+            data_dir() / "Total Load - Day Ahead*.csv", null_values=["N/A", "-"]
+        )
         .drop_nulls()
         .select(
             pl.col("Time (UTC)")
@@ -171,7 +173,9 @@ def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):
         return {
             "X": X_y.select(pl.col("prediction_time")),
             "y": (
-                X_y[f"{horizons[0]}h"] if single_horizon else X_y.drop("prediction_time")
+                X_y[f"{horizons[0]}h"]
+                if single_horizon
+                else X_y.drop("prediction_time")
             ),
         }
     else:
@@ -199,7 +203,7 @@ def add_lagged_features(target_time, load_mw_history, horizon):
     def rolling(e, name):
         return [
             e.rolling(
-                index_column="time", period=f"{width}h", offset=f"{-width -lag}h"
+                index_column="time", period=f"{width}h", offset=f"{-width - lag}h"
             ).alias(f"lag_{lag}_width_{width}_{name}")
             for lag in rolling_lags
             for width in rolling_widths
@@ -245,7 +249,7 @@ def add_weather(
         cs.matches(".*temperature.*")
         .as_expr()
         .mean()
-        .rolling(index_column="time", period=f"{width}h", offset=f"{-width -lag}h")
+        .rolling(index_column="time", period=f"{width}h", offset=f"{-width - lag}h")
         .name.map(f"{{}}_lag_{lag}_width_{width}".format)
         for lag, width in rolls
     ]
@@ -457,7 +461,9 @@ def make_data_op(
         "Function that loads the weather forecast for a city. "
         "See signature of electricity_load_forecasting.fetch_city_weather."
     )
-    holidays_fetcher = skrub.var("holidays_fetcher", fetch_holidays, becomes_default=True)
+    holidays_fetcher = skrub.var(
+        "holidays_fetcher", fetch_holidays, becomes_default=True
+    )
     prediction_time = skrub.deferred(time_range)(range_start, range_end)
     load_mw_history = (
         load_mw_history_fetcher()
@@ -487,7 +493,9 @@ def make_data_op(
     learning_rate = skrub.choose_float(
         0.01, 0.7, default=0.1, log=True, name="learning_rate"
     )
-    max_leaf_nodes = skrub.choose_int(2, 128, default=31, log=True, name="max_leaf_nodes")
+    max_leaf_nodes = skrub.choose_int(
+        2, 128, default=31, log=True, name="max_leaf_nodes"
+    )
     min_samples_leaf = skrub.choose_int(
         2, 64, default=20, log=True, name="min_samples_leaf"
     )
@@ -562,7 +570,9 @@ def make_data_op(
         )
 
     multi_horizon_pred = (
-        skrub.deferred(concat_horizons)(all_pred, quantile_regression=quantile_regression)
+        skrub.deferred(concat_horizons)(
+            all_pred, quantile_regression=quantile_regression
+        )
         .skb.set_name("pred_multi_horizon")
         .skb.set_description(
             "Output of the pipeline: predicted loads at multiple horizons. "
@@ -670,7 +680,7 @@ def plot_predictions(results, horizons=None, start="2025-03-01"):
                     hovertemplate="%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>",
                 )
             )
-    fig.update_layout(height=600, title=f"CV predicted load mw")
+    fig.update_layout(height=600, title="CV predicted load mw")
     return fig
 
 

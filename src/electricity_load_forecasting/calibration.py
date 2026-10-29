@@ -96,7 +96,9 @@ class Recalibrator(RegressorMixin, BaseEstimator):
         if self.n_bins < 5:
             raise ValueError(f"n_bins must be at least 5, got {self.n_bins}")
         if self.n_last_folds is not None and self.n_last_folds < 1:
-            raise ValueError(f"n_last_folds must be at least 1, got {self.n_last_folds}")
+            raise ValueError(
+                f"n_last_folds must be at least 1, got {self.n_last_folds}"
+            )
         X = np.asarray(X)
         y = np.asarray(y, dtype=float).ravel()
         cv = self.cv if self.cv is not None else _default_cv()

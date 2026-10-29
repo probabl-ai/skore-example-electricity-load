@@ -14,9 +14,9 @@ import argparse
 import sys
 from pathlib import Path
 
+import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
-import plotly.graph_objects as go
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "calibration"))
@@ -51,9 +51,9 @@ def check_layout(models):
     horizon_columns = cc.pred_columns(models[0][1])
     for name, df, _ in models[1:]:
         hc = cc.pred_columns(df)
-        if list(hc) != list(horizon_columns) or {
-            h: list(q) for h, q in hc.items()
-        } != {h: list(q) for h, q in horizon_columns.items()}:
+        if list(hc) != list(horizon_columns) or {h: list(q) for h, q in hc.items()} != {
+            h: list(q) for h, q in horizon_columns.items()
+        }:
             raise SystemExit(f"{name}: horizons/quantiles differ from {models[0][0]}")
     return horizon_columns
 
@@ -131,9 +131,7 @@ def fig_interval(models, horizon_columns, n_bins):
             low = df[horizon_columns[h][q_low]].to_numpy()
             high = df[horizon_columns[h][q_high]].to_numpy()
             center = df[horizon_columns[h][median]].to_numpy()
-            xs, coverage = cc.interval_coverage_by_level(
-                y, low, high, center, n_bins
-            )
+            xs, coverage = cc.interval_coverage_by_level(y, low, high, center, n_bins)
             fig.add_trace(
                 go.Scatter(
                     x=xs,
@@ -273,7 +271,9 @@ def fig_by_level(models, horizon_columns, n_bins, method="bins"):
         visible = [False] * len(fig.data)
         for i in traces_per_horizon[k]:
             visible[i] = True
-        buttons.append(dict(label=f"{h}h", method="update", args=[{"visible": visible}]))
+        buttons.append(
+            dict(label=f"{h}h", method="update", args=[{"visible": visible}])
+        )
     kind = "equal-count bins" if method == "bins" else "isotonic / PAV"
     fig.update_layout(
         height=360 * n_rows + 190,

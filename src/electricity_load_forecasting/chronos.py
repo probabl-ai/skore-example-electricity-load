@@ -28,8 +28,8 @@ import functools
 
 import numpy as np
 import polars as pl
-from polars import selectors as cs
 import skrub
+from polars import selectors as cs
 from sklearn.base import BaseEstimator, RegressorMixin
 
 from . import pipeline as elf
@@ -241,9 +241,7 @@ class ChronosHistoryRegressor(RegressorMixin, BaseEstimator):
                 raise ValueError(f"unexpected forecaster output shape {out.shape}")
             results.append(out)
         forecasts = (
-            np.concatenate(results)
-            if results
-            else np.empty((0, n_steps, len(levels)))
+            np.concatenate(results) if results else np.empty((0, n_steps, len(levels)))
         )
 
         columns = {}

@@ -170,11 +170,15 @@ def check_scoring():
     env = elf.get_env()
     for quantiles in (None, (0.05, 0.5, 0.95)):
         pred = make_op(quantiles=quantiles)
-        split = pred.skb.train_test_split(environment=env, split_func=elf.train_test_split)
+        split = pred.skb.train_test_split(
+            environment=env, split_func=elf.train_test_split
+        )
         learner = pred.skb.make_learner().fit(split["train"])
         score = learner.score(split["test"])
         mape = -score["neg_mape__average"]
-        print(f"  quantiles={quantiles}: n_test={split['X_test'].height}, MAPE={mape:.4f}")
+        print(
+            f"  quantiles={quantiles}: n_test={split['X_test'].height}, MAPE={mape:.4f}"
+        )
         assert 0 < mape < 0.2
         if quantiles is not None:
             assert "neg_mape__1h__q_0.5" in score

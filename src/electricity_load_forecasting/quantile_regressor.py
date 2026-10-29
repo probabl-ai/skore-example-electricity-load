@@ -3,15 +3,14 @@ copied from:
 https://github.com/probabl-ai/forecasting/blob/main/content/python_files/prediction_intervals.py
 """
 
-from scipy.interpolate import interp1d
-from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.utils.validation import check_is_fitted
-from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingRegressor
-from sklearn.preprocessing import KBinsDiscretizer
-from sklearn.utils.validation import check_consistent_length
-from sklearn.utils import check_random_state
 import numpy as np
 import polars as pl
+from scipy.interpolate import interp1d
+from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestClassifier
+from sklearn.preprocessing import KBinsDiscretizer
+from sklearn.utils import check_random_state
+from sklearn.utils.validation import check_consistent_length, check_is_fitted
 
 
 class HGBQuantileRegressor(RegressorMixin, BaseEstimator):

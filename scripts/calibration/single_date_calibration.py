@@ -242,7 +242,11 @@ def coverage_counts(raw, recalibrated, history):
         )
         counts[name] = int(inside.sum())
     joined = (
-        raw.select("time", pl.col(f"q_{Q_LOW}").alias("raw_low"), pl.col(f"q_{Q_HIGH}").alias("raw_high"))
+        raw.select(
+            "time",
+            pl.col(f"q_{Q_LOW}").alias("raw_low"),
+            pl.col(f"q_{Q_HIGH}").alias("raw_high"),
+        )
         .join(
             recalibrated.select(
                 "time",
@@ -298,9 +302,13 @@ PAGE_TAIL = """</body></html>
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--date", default="2023-12-04T09:00", help="first prediction date")
+    parser.add_argument(
+        "--date", default="2023-12-04T09:00", help="first prediction date"
+    )
     parser.add_argument("--n_dates", default=10, type=int)
-    parser.add_argument("--dates", default=None, help="comma-separated ISO dates instead")
+    parser.add_argument(
+        "--dates", default=None, help="comma-separated ISO dates instead"
+    )
     parser.add_argument("--max_iter", default=2000, type=int)
     parser.add_argument("--models_dir", default=str(DEFAULT_MODELS_DIR))
     parser.add_argument(

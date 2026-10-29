@@ -22,7 +22,6 @@ from pathlib import Path
 
 import plotly.graph_objects as go
 import polars as pl
-
 from compare_predictions import compare, horizons_of, quantile_levels_of
 
 parser = argparse.ArgumentParser()

@@ -2,8 +2,8 @@ import datetime
 
 import polars as pl
 
-
 _TRAIN_TEST_GAP_DAYS = 7
+
 
 def _split_indices(X, test_start_date, test_length_days):
     train = (

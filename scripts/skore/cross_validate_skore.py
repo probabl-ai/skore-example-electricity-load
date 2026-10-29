@@ -1,11 +1,10 @@
-from pathlib import Path
 import argparse
-import pickle
 import datetime
-
-import skore
+import pickle
+from pathlib import Path
 
 import electricity_load_forecasting as elf
+import skore
 
 # %%
 parser = argparse.ArgumentParser()
@@ -63,7 +62,7 @@ report_name = "__".join(
     [
         "hgb_mean" if quantile_strategy is None else quantile_strategy,
         f"search_{n_trials}" if do_search else "default",
-        "with_temperature_lags"
+        "with_temperature_lags",
     ]
 )
 report_path = project.put(report_name, report)
@@ -92,8 +91,9 @@ fig.write_html(report_path / "user" / "24h.html")
 # %%
 # store in hub
 if args.hub and quantile_strategy is None:
-    import dotenv
     import os
+
+    import dotenv
 
     dotenv.load_dotenv()
 

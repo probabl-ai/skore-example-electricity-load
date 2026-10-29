@@ -33,11 +33,13 @@ import polars as pl
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-from electricity_load_forecasting.metrics import pinball, split_by_quantile
+from electricity_load_forecasting.metrics import pinball
 
 
 def horizons_of(df):
-    return sorted(int(m.group(1)) for c in df.columns if (m := re.match(r"^(\d+)h$", c)))
+    return sorted(
+        int(m.group(1)) for c in df.columns if (m := re.match(r"^(\d+)h$", c))
+    )
 
 
 def quantile_levels_of(df, h):
@@ -58,7 +60,9 @@ def mae(y_true, y_pred_point):
 
 def mape(y_true, y_pred_point):
     average = mean_absolute_percentage_error(y_true, y_pred_point)
-    detail = mean_absolute_percentage_error(y_true, y_pred_point, multioutput="raw_values")
+    detail = mean_absolute_percentage_error(
+        y_true, y_pred_point, multioutput="raw_values"
+    )
     return {"mape__average": average} | {
         f"mape__{c}": float(s) for c, s in zip(y_true.columns, detail)
     }

@@ -40,7 +40,12 @@ import electricity_load_forecasting as elf
 
 QUANTILES = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
 CORRECTION_LEVELS = (0.95, 0.5, 0.05)
-COLORS = {"truth": "#000000", "raw": "#d62728", "recalibrated": "#1f77b4", "ideal": "gray"}
+COLORS = {
+    "truth": "#000000",
+    "raw": "#d62728",
+    "recalibrated": "#1f77b4",
+    "ideal": "gray",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -194,9 +199,7 @@ def isotonic_quantiles(prediction, y, tau):
         while len(blocks) >= 2 and blocks[-2][2] > blocks[-1][2]:
             first = blocks[-2][0]
             last = blocks[-1][1]
-            blocks[-2:] = [
-                [first, last, float(np.quantile(obs[first:last], tau))]
-            ]
+            blocks[-2:] = [[first, last, float(np.quantile(obs[first:last], tau))]]
     xs = [float(p[start:end].mean()) for start, end, _ in blocks]
     quantiles = [value for _, _, value in blocks]
     return xs, quantiles
@@ -220,7 +223,11 @@ def on_hourly_grid(df):
     """
     times = df["prediction_time"]
     grid = pl.DataFrame(
-        {"prediction_time": pl.datetime_range(times.min(), times.max(), "1h", eager=True)}
+        {
+            "prediction_time": pl.datetime_range(
+                times.min(), times.max(), "1h", eager=True
+            )
+        }
     )
     return (
         grid.join(df, on="prediction_time", how="left")
@@ -341,7 +348,10 @@ def fig_time_series(raw, recal, horizon_columns, window_days=14):
     # so that zooming y in one panel zooms the other. (A range slider, which we do
     # not use, prevents zooming y with a selected rectangle when the axes are linked.)
     values = [raw[f"{h}h"] for h in horizons] + [
-        preds[c] for preds in (raw, recal) for qs in horizon_columns.values() for c in qs.values()
+        preds[c]
+        for preds in (raw, recal)
+        for qs in horizon_columns.values()
+        for c in qs.values()
     ]
     y_min = min(float(v.min()) for v in values)
     y_max = max(float(v.max()) for v in values)
@@ -407,8 +417,11 @@ def fig_reliability(raw, recal, horizon_columns):
             )
         fig.update_xaxes(title_text="nominal level", range=[0, 1], row=1, col=j)
     fig.update_yaxes(title_text="observed fraction below prediction", row=1, col=1)
-    fig.update_layout(height=450, title="Coverage curve (marginal reliability), one panel per horizon, all CV test "
-        "folds pooled")
+    fig.update_layout(
+        height=450,
+        title="Coverage curve (marginal reliability), one panel per horizon, all CV test "
+        "folds pooled",
+    )
     return fig
 
 
@@ -597,13 +610,17 @@ def fig_reliability_by_level(raw, recal, horizon_columns, n_bins, method="bins")
             col=col,
         )
         if col == 1:
-            fig.update_yaxes(title_text="estimated &tau;-quantile of y (MW)", row=row, col=col)
+            fig.update_yaxes(
+                title_text="estimated &tau;-quantile of y (MW)", row=row, col=col
+            )
     buttons = []
     for k, h in enumerate(horizons):
         visible = [False] * len(fig.data)
         for i in traces_per_horizon[k]:
             visible[i] = True
-        buttons.append(dict(label=f"{h}h", method="update", args=[{"visible": visible}]))
+        buttons.append(
+            dict(label=f"{h}h", method="update", args=[{"visible": visible}])
+        )
     kind = "equal-count bins" if method == "bins" else "isotonic / PAV"
     fig.update_layout(
         height=360 * n_rows + 190,
@@ -1019,7 +1036,9 @@ def build_report(output_dir):
     raw = pl.read_parquet(output_dir / "raw_cv_predictions.parquet")
     recal = pl.read_parquet(output_dir / "recalibrated_cv_predictions.parquet")
     raw_scores = pl.read_csv(output_dir / "raw_scores.csv", try_parse_dates=True)
-    recal_scores = pl.read_csv(output_dir / "recalibrated_scores.csv", try_parse_dates=True)
+    recal_scores = pl.read_csv(
+        output_dir / "recalibrated_scores.csv", try_parse_dates=True
+    )
     corrections = pl.read_parquet(output_dir / "corrections.parquet")
     assert raw["prediction_time"].equals(recal["prediction_time"])
     config = read_config(output_dir)
@@ -1027,9 +1046,12 @@ def build_report(output_dir):
     horizon_columns = pred_columns(raw)
     horizons = list(horizon_columns)
     quantiles = tuple(next(iter(horizon_columns.values())))
-    n_bins = corrections.filter(pl.col("kind") == "bin").group_by(
-        "split", "horizon", "column"
-    ).len()["len"].max()
+    n_bins = (
+        corrections.filter(pl.col("kind") == "bin")
+        .group_by("split", "horizon", "column")
+        .len()["len"]
+        .max()
+    )
     interval, mape, mape_split, pinball, split = tables(
         raw_scores, recal_scores, horizons, quantiles
     )
@@ -1044,9 +1066,7 @@ def build_report(output_dir):
             band_diff = max(
                 band_diff,
                 float(
-                    (
-                        recal[f"pred_{h}h__q_{q}"] - raw[f"pred_{h}h__q_{q}"]
-                    ).abs().max()
+                    (recal[f"pred_{h}h__q_{q}"] - raw[f"pred_{h}h__q_{q}"]).abs().max()
                 ),
             )
     median_change = (
@@ -1062,9 +1082,7 @@ def build_report(output_dir):
     plots = {
         "time_series": fig_time_series(raw, recal, horizon_columns),
         "reliability": fig_reliability(raw, recal, horizon_columns),
-        "interval_coverage": fig_interval_coverage(
-            raw, recal, horizon_columns, n_bins
-        ),
+        "interval_coverage": fig_interval_coverage(raw, recal, horizon_columns, n_bins),
         "reliability_bins": fig_reliability_by_level(
             raw, recal, horizon_columns, n_bins, method="bins"
         ),

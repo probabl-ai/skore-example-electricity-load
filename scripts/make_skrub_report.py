@@ -1,4 +1,3 @@
-import pprint
 import electricity_load_forecasting as elf
 
 env = elf.get_env()

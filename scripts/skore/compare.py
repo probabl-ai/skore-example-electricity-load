@@ -1,6 +1,7 @@
 import argparse
 
 import skrub
+
 import skore
 
 parser = argparse.ArgumentParser()
@@ -18,9 +19,7 @@ keys = summary["key"].tolist()
 key_to_id = dict(zip(keys, ids))
 if args.m is not None:
     key_to_id = {k: v for k, v in key_to_id.items() if k in args.m.split()}
-comparison = skore.compare(
-    {key: project.get(i) for key, i in key_to_id.items()}
-)
+comparison = skore.compare({key: project.get(i) for key, i in key_to_id.items()})
 metric_summary = comparison.metrics.summarize().frame()
 print(metric_summary)
 skrub.TableReport(

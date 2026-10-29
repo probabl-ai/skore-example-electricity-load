@@ -1,8 +1,7 @@
-from pathlib import Path
 import datetime
+from pathlib import Path
 
 import plotly.graph_objects as go
-import polars as pl
 
 import electricity_load_forecasting as elf
 

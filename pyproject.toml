@@ -16,6 +16,9 @@ dependencies = [
     "scikit-learn",
     "scipy",
     "skrub",
+    "joblib",
+    "optuna",
+    "optuna-dashboard",
 ]
 
 [project.optional-dependencies]
@@ -26,16 +29,34 @@ chronos = [
 tabicl = [
     "tabicl",
 ]
-scripts = [
-    "joblib",
-    "optuna",
-    "optuna-dashboard",
-    "pandas",
-    "pyarrow",
-    "pydot",
+skore = [
     "python-dotenv",
     "skore",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/electricity_load_forecasting"]
+
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64"]
+
+[tool.pixi.dependencies]
+python = ">=3.11"
+pre-commit = "*"
+ruff = "*"
+
+[tool.pixi.pypi-dependencies]
+electricity-load-forecasting = { path = ".", editable = true, extras = ["skore"] }
+
+[tool.pixi.tasks]
+lint = "ruff check ."
+format = "ruff format ."
+pre-commit = "pre-commit run --all-files"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

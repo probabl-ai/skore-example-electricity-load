@@ -23,7 +23,8 @@ output_dir = elf.get_output_dir("cross_validate_")
 
 env = elf.get_env()
 pred = elf.make_data_op(
-    horizons=(1, 12, 24), quantile_strategy=quantile_strategy,
+    horizons=(1, 12, 24),
+    quantile_strategy=quantile_strategy,
     max_iter=args.max_iter,
     recalibrate=args.recalibrate,
 )
