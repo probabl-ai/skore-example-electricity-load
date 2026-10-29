@@ -46,7 +46,7 @@ COLORS = {"truth": "#000000", "raw": "#d62728", "recalibrated": "#1f77b4", "idea
 # ---------------------------------------------------------------------------
 # Running the CV
 # ---------------------------------------------------------------------------
-def run_cv(recalibrate, horizons, quantiles, max_iter, n_bins, n_last_folds, env):
+def run_cv(recalibrate, horizons, quantiles, max_iter, env):
     """Walk-forward CV like ``elf.cross_val_predict``, keeping the corrections."""
     data_op = elf.make_data_op(
         horizons=horizons,
@@ -54,8 +54,6 @@ def run_cv(recalibrate, horizons, quantiles, max_iter, n_bins, n_last_folds, env
         quantiles=quantiles,
         max_iter=max_iter,
         recalibrate=recalibrate,
-        recalibrator_n_bins=n_bins,
-        recalibrator_n_last_folds=n_last_folds,
     )
     predictions, scores, corrections, oofs, n_iters = [], [], [], [], []
     for i, split in enumerate(data_op.skb.iter_cv_splits(environment=env)):
@@ -1114,15 +1112,6 @@ def build_report(output_dir):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--max_iter", default=1000, type=int)
-    parser.add_argument("--n_bins", default=10, type=int)
-    parser.add_argument(
-        "--n_last_folds",
-        default=None,
-        type=int,
-        help="calibrate only on the out-of-fold predictions of the last this many "
-        "inner CV folds (13 weeks each) of each training set "
-        "(default: all of the inner folds)",
-    )
     parser.add_argument(
         "--reuse_raw",
         type=Path,
@@ -1145,14 +1134,13 @@ def main():
     horizons, quantiles = tuple(args.horizons), tuple(args.quantiles)
     config = dict(
         max_iter=args.max_iter,
-        n_bins=args.n_bins,
-        n_last_folds=args.n_last_folds,
+        # default of calibration.Recalibrator, used by make_data_op
+        n_last_folds=4,
         horizons=list(horizons),
         quantiles=list(quantiles),
     )
     if args.reuse_raw is not None:
-        # the raw results must come from the same settings (n_last_folds and
-        # n_bins only concern the recalibrated run)
+        # the raw results must come from the same settings
         reused = read_config(args.reuse_raw)
         for key in ("max_iter", "horizons", "quantiles"):
             if reused.get(key) != config[key]:
@@ -1174,7 +1162,7 @@ def main():
                     )
             continue
         predictions, scores, extra = run_cv(
-            recalibrate, horizons, quantiles, args.max_iter, args.n_bins, args.n_last_folds, env
+            recalibrate, horizons, quantiles, args.max_iter, env
         )
         predictions.write_parquet(output_dir / f"{name}_cv_predictions.parquet")
         scores.write_csv(output_dir / f"{name}_scores.csv")

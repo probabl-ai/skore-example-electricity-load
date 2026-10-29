@@ -17,13 +17,13 @@ Run from the repository root (see `chronos_comparison_scripts/README.md`):
     python chronos_comparison_scripts/cross_validate_compare.py \
         --model hgb_quantile --output_dir results/cv_compare_xxx
     python chronos_comparison_scripts/cross_validate_compare.py \
-        --model hgb_quantile_recal --max_iter 2000 --n_last_folds 4 \
+        --model hgb_quantile_recal --max_iter 2000 \
         --output_dir results/cv_compare_xxx
     python chronos_comparison_scripts/cross_validate_compare.py \
         --model tabicl --output_dir results/cv_compare_xxx
     python chronos_comparison_scripts/cross_validate_compare.py \
         --model tabicl --output_dir results/cv_compare_xxx \
-        --tabicl_n_estimators 8 --tabicl_binning_train_rows_cap 0 --tag n8_unlimited
+        --tabicl_n_estimators 8 --max_train_rows 0 --tag n8_unlimited
     python chronos_comparison_scripts/cross_validate_compare.py \
         --model chronos2 --output_dir results/cv_compare_xxx --device cuda
 
@@ -31,9 +31,9 @@ Run from the repository root (see `chronos_comparison_scripts/README.md`):
 one independent `HistGradientBoostingRegressor` per quantile (see
 `quantile_regressor.HGBQuantileRegressor`), as opposed to `hgb_mean`'s single
 mean-output regressor. `hgb_quantile_recal` is the same wrapped in
-`calibration.Recalibrator` (post-hoc correction of the quantiles), with
-`--n_last_folds` and `--n_bins` forwarded to it. `--max_iter` applies to the HGB
-models only (ignored by tabicl/chronos2).
+`calibration.Recalibrator` (post-hoc correction of the quantiles), with its
+default settings. `--max_iter` applies to the HGB models only (ignored by
+tabicl/chronos2).
 
 All pipelines share the horizons (1, 12, 24), the environment
 (`elf.get_env()`), and `elf.TimeSeriesSplitter` (attached to X the same way in
@@ -73,16 +73,6 @@ parser.add_argument(
 )
 # HGB-specific
 parser.add_argument("--max_iter", type=int, default=1000)
-parser.add_argument(
-    "--n_last_folds",
-    type=int,
-    default=None,
-    help="hgb_quantile_recal: calibrate on the last N inner CV folds "
-    "(default: all inner folds)",
-)
-parser.add_argument(
-    "--n_bins", type=int, default=10, help="hgb_quantile_recal: recalibrator bins"
-)
 # chronos2-specific
 parser.add_argument("--chronos_model", default="amazon/chronos-2")
 parser.add_argument("--device", default=None, help="default: cuda if available")
@@ -98,11 +88,11 @@ parser.add_argument(
 # tabicl-specific
 parser.add_argument("--tabicl_n_estimators", type=int, default=1)
 parser.add_argument(
-    "--tabicl_binning_train_rows_cap",
+    "--max_train_rows",
     type=int,
     default=9000,
-    help="cap on training rows for tabicl/binning (see "
-    "elf.make_data_op's docstring for why only those two need it); 0 disables the cap",
+    help="cap on training rows for tabicl (see elf.make_data_op's docstring); "
+    "0 disables the cap",
 )
 args = parser.parse_args()
 
@@ -127,8 +117,6 @@ elif args.model == "hgb_quantile_recal":
         quantiles=args.quantiles,
         max_iter=args.max_iter,
         recalibrate=True,
-        recalibrator_n_last_folds=args.n_last_folds,
-        recalibrator_n_bins=args.n_bins,
     )
 elif args.model == "tabicl":
     pred = elf.make_data_op(
@@ -136,7 +124,7 @@ elif args.model == "tabicl":
         quantile_strategy="tabicl",
         quantiles=args.quantiles,
         tabicl_n_estimators=args.tabicl_n_estimators,
-        tabicl_binning_train_rows_cap=args.tabicl_binning_train_rows_cap or None,
+        max_train_rows=args.max_train_rows or None,
     )
 else:
     import chronos_forecasting as cf

@@ -16,7 +16,7 @@ python chronos_comparison_scripts/cross_validate_compare.py --model chronos2 \
   `hgb_quantile_recal`, `tabicl` or `chronos2`) through all CV folds and saves
   predictions (`*_cv_predictions.parquet`) and per-fold scores (`*_scores.csv`)
   to `--output_dir`. `hgb_quantile_recal` is HGB with the
-  `calibration.Recalibrator` post-hoc correction (`--n_last_folds`, `--n_bins`);
+  `calibration.Recalibrator` post-hoc correction (default settings);
   `--max_iter` applies to the HGB models, and `--quantiles` to all models. Run
   once per model/configuration you want to compare, pointing all of them at the
   same `--output_dir`; use `--tag` to keep multiple runs of the same model

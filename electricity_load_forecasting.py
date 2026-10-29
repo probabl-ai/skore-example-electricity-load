@@ -554,11 +554,9 @@ def make_data_op(
     quantile_strategy=None,
     quantiles=(0.05, 0.5, 0.95),
     tabicl_n_estimators=1,
-    tabicl_binning_train_rows_cap=9000,
+    max_train_rows=None,
     max_iter=1000,
     recalibrate=False,
-    recalibrator_n_bins=10,
-    recalibrator_n_last_folds=None,
 ):
     """
     Prepare a skrub dataop for multiple horizon prediction.
@@ -590,20 +588,8 @@ def make_data_op(
         fit on different row/feature permutations; more estimators costs
         proportionally more inference compute.
 
-    tabicl_binning_train_rows_cap : int or None, default=9000
-        Only used when ``quantile_strategy`` is ``"tabicl"`` or ``"binning"``;
-        has no effect for ``None`` or ``"multiple_regressors"``, which always
-        train on the full training set of each CV fold regardless of this
-        parameter's value. It exists because those two strategies fit by
-        conditioning directly on the training rows at prediction time
-        (TabICL's in-context tabular learning; the classifier backing
-        ``binning``) rather than classical parametric training, so their
-        inference cost and memory scale with the number of training rows
-        given to them -- capping it (via ``limit_train_size``, keeping only
-        the most recent rows) keeps that bounded as the walk-forward CV's
-        training set grows across folds. Set to None to disable the cap and
-        use the full per-fold training set for these strategies too (expect
-        substantially higher runtime/memory, especially for later folds).
+    max_train_rows : int or None, default=None
+        Max number of rows used for training.
 
     recalibrate : bool, default=False
         If True, wrap the quantile regressor of each horizon in a
@@ -611,15 +597,6 @@ def make_data_op(
         based on their out-of-fold reliability (see that class). Only
         supported for ``quantile_strategy == "multiple_regressors"``. The
         recalibrator's inner CV is ``_recalibrator_cv()``.
-
-    recalibrator_n_bins : int, default=10
-        ``n_bins`` of the recalibrator (ignored unless ``recalibrate``).
-
-    recalibrator_n_last_folds : int or None, default=None
-        ``n_last_folds`` of the recalibrator (ignored unless ``recalibrate``):
-        only calibrate on the out-of-fold predictions of the last this many
-        inner CV folds of each training set (3 months each).
-
     """
     if recalibrate and quantile_strategy != "multiple_regressors":
         raise ValueError(
@@ -663,12 +640,9 @@ def make_data_op(
         )
     )
 
-    if (
-        quantile_strategy in ["tabicl", "binning"]
-        and tabicl_binning_train_rows_cap is not None
-    ):
-        X = X.skb.apply_func(limit_train_size, size=tabicl_binning_train_rows_cap)
-        y = y.skb.apply_func(limit_train_size, size=tabicl_binning_train_rows_cap)
+    if max_train_rows is not None:
+        X = X.skb.apply_func(limit_train_size, size=max_train_rows)
+        y = y.skb.apply_func(limit_train_size, size=max_train_rows)
     temperature_only = skrub.choose_bool(name="temperature_only", default=True)
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
 
@@ -705,12 +679,7 @@ def make_data_op(
     elif quantile_strategy == "multiple_regressors":
         predictor = hgb_q_regressor
         if recalibrate:
-            predictor = Recalibrator(
-                hgb_q_regressor,
-                cv=_recalibrator_cv(),
-                n_bins=recalibrator_n_bins,
-                n_last_folds=recalibrator_n_last_folds,
-            )
+            predictor = Recalibrator(hgb_q_regressor, cv=_recalibrator_cv())
             # the inner CV needs the prediction times of the training rows, which
             # are not in the numpy array of features that the estimator receives
             fit_kwargs = {"split_kwargs": {"prediction_time": X["prediction_time"]}}
@@ -869,7 +838,7 @@ def plot_predictions(results, horizons=None, start="2025-03-01"):
     return fig
 
 
-def get_report_predictions(report):
+def get_skore_report_predictions(report):
     """
     Get predictions out of a skore report.
     """

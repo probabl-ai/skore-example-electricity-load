@@ -42,8 +42,6 @@ def make_op(recalibrate, args):
         quantiles=QUANTILES,
         max_iter=args.max_iter,
         recalibrate=recalibrate,
-        recalibrator_n_last_folds=args.n_last_folds,
-        recalibrator_n_bins=args.n_bins,
     )
 
 
@@ -74,8 +72,6 @@ def fold_config(split, args):
         "horizons": list(range(1, 25)),
         "quantiles": list(QUANTILES),
         "max_iter": args.max_iter,
-        "n_last_folds": args.n_last_folds,
-        "n_bins": args.n_bins,
         "train_end": str(split["X_train"]["prediction_time"].max()),
         "test_start": str(split["X_test"]["prediction_time"].min()),
         "test_end": str(split["X_test"]["prediction_time"].max()),
@@ -284,7 +280,7 @@ PAGE_HEAD = """<!DOCTYPE html>
 <b>{train_end:%Y-%m-%d}</b> (the training set of the cross-validation fold that contains the
 first date; it ends 7 days before that fold's test period). The same fitted models are then
 used to predict {n_dates} dates of that fold's test period, so all the forecasts below are out of
-sample. The recalibrated model is <code>calibration.Recalibrator</code> (last {n_last_folds}
+sample. The recalibrated model is <code>calibration.Recalibrator</code> (recent
 inner folds), applied per horizon.</p>
 <p>For each date: the grey line is the observed load before the prediction time, the black
 line the observed load after it, and the coloured band the {q_low}&ndash;{q_high} interval.
@@ -306,8 +302,6 @@ def main():
     parser.add_argument("--n_dates", default=10, type=int)
     parser.add_argument("--dates", default=None, help="comma-separated ISO dates instead")
     parser.add_argument("--max_iter", default=2000, type=int)
-    parser.add_argument("--n_last_folds", default=4, type=int)
-    parser.add_argument("--n_bins", default=10, type=int)
     parser.add_argument("--models_dir", default=str(DEFAULT_MODELS_DIR))
     parser.add_argument(
         "--refit", action="store_true", help="refit even if cached models exist"
@@ -364,7 +358,6 @@ def main():
     head = PAGE_HEAD.format(
         train_end=train_end,
         n_dates=len(dates),
-        n_last_folds=args.n_last_folds,
         q_low=Q_LOW,
         q_high=Q_HIGH,
         n=counts["n"],

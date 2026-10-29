@@ -80,7 +80,7 @@ class Recalibrator(RegressorMixin, BaseEstimator):
         correction.
     """
 
-    def __init__(self, estimator, cv=None, n_bins=10, n_last_folds=None):
+    def __init__(self, estimator, cv=None, n_bins=10, n_last_folds=4):
         self.estimator = estimator
         self.cv = cv
         self.n_bins = n_bins

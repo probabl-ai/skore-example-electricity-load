@@ -467,7 +467,7 @@ def plot_predictions(results, horizons=None, start="2025-03-01"):
     return fig
 
 
-def get_report_predictions(report):
+def get_skore_report_predictions(report):
     all_predictions = []
     for i, r in enumerate(report.reports_):
         all_predictions.append(
