@@ -30,6 +30,12 @@ python chronos_comparison_scripts/cross_validate_compare.py --model chronos2 \
   `compare_predictions`, plus links to one true-vs-predicted plot per
   model/horizon (median line + shaded quantile interval for quantile models),
   written as separate files under `<dir>/plots/` to keep the main page small.
+- `build_calibration_report.py` -- reliability / calibration diagrams in the
+  style of `compare_calibration.py`'s report: marginal coverage curve,
+  conditional coverage of the outermost interval by predicted load, and
+  per-quantile conditional reliability (equal-count bins and isotonic),
+  overlaying every model found in the directory. Writes `<dir>/calibration.html`
+  (linked from `report.html`).
 - `plot_cv_comparison.py` -- alternative view: overlays every model's median
   prediction on one plot per horizon (no shading), instead of one plot per
   model.

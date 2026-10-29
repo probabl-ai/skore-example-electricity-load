@@ -139,6 +139,12 @@ for name, df in frames.items():
         links.append(f'<li><a href="plots/{out_name}">{h}h horizon</a></li>')
     sections.append(f"<h2>{name}</h2>\n<ul>\n" + "\n".join(links) + "\n</ul>")
 
+calibration_link = (
+    '<p><a href="calibration.html">Reliability / calibration diagrams</a></p>'
+    if (args.dir / "calibration.html").exists()
+    else ""
+)
+
 page = f"""
 <!DOCTYPE html>
 <html>
@@ -158,6 +164,7 @@ th:first-child, td:first-child {{ text-align: left; }}
 width use all available quantiles ("-" = model has no quantiles).
 All rows across the 5 CV folds are pooled.</p>
 {table_html}
+{calibration_link}
 <h1>Plots</h1>
 <p>True vs predicted load per model and horizon (separate pages, linked below
 to keep this page small). For quantile models the plot shows the median as a
