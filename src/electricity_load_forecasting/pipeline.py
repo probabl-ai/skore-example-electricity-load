@@ -10,12 +10,13 @@ import holidays
 import polars as pl
 from polars import selectors as cs
 import skrub
-from sklearn.metrics import mean_absolute_percentage_error, d2_pinball_score
 from sklearn.ensemble import HistGradientBoostingRegressor
 import plotly.graph_objects as go
 
 from .calibration import Recalibrator
 from .quantile_regressor import BinnedQuantileRegressor, HGBQuantileRegressor
+from .splitter import TimeSeriesSplitter
+from .metrics import neg_mape_scorer, pinball_scorer, coverage_scorer, mean_width_scorer
 
 _ALL_CITIES = (
     "paris",
@@ -29,7 +30,6 @@ _ALL_CITIES = (
     "brest",
     "bayonne",
 )
-_TRAIN_TEST_GAP_DAYS = 7
 
 
 def project_dir():
@@ -334,89 +334,6 @@ def concat_horizons(all_pred, quantile_regression=False, mode=skrub.eval_mode())
     )
 
 
-def _split_indices(X, test_start_date, test_length_days):
-    train = (
-        X.with_row_index()
-        .filter(
-            pl.col("prediction_time")
-            < test_start_date - datetime.timedelta(_TRAIN_TEST_GAP_DAYS)
-        )["index"]
-        .to_numpy()
-    )
-    test = (
-        X.with_row_index()
-        .filter(
-            (pl.col("prediction_time") >= test_start_date)
-            & (
-                pl.col("prediction_time")
-                < test_start_date + datetime.timedelta(days=test_length_days)
-            )
-        )["index"]
-        .to_numpy()
-    )
-    return train, test
-
-
-class TimeSeriesSplitter:
-    """
-    Walk-forward CV with a gap of ``_TRAIN_TEST_GAP_DAYS`` between train and test.
-
-    The test folds are aligned towards the end of the time range: they are
-    consecutive, all ``test_length_days`` long (the default, 13 weeks, is about
-    3 months), and the last one ends at the last prediction time. The training set
-    of each fold is all the data that precedes its test fold by more than the
-    gap. The number of folds is the largest such that the first training set
-    spans at least ``min_train_days``; it can be longer, by less than
-    ``test_length_days``.
-
-    ``split`` reads the prediction times from the ``prediction_time`` column of
-    ``X``, or uses its ``prediction_time`` argument if provided (for example when
-    ``X`` is a numpy array of features from which the time column was dropped).
-    """
-
-    def __init__(self, min_train_days=365 * 2, test_length_days=7 * 13):
-        self.min_train_days = min_train_days
-        self.test_length_days = test_length_days
-
-    def split(self, X, y=None, groups=None, prediction_time=None):
-        if prediction_time is not None:
-            X = pl.DataFrame({"prediction_time": prediction_time})
-        times = X["prediction_time"]
-        # the test folds are half-open intervals, the last one must include the
-        # last prediction time: it ends one time step after it
-        time_steps = times.unique().sort().diff().drop_nulls()
-        if not len(time_steps):
-            return
-        end = times.max() + time_steps.min()
-        test_length = datetime.timedelta(days=self.test_length_days)
-        available = (
-            end
-            - times.min()
-            - datetime.timedelta(days=_TRAIN_TEST_GAP_DAYS + self.min_train_days)
-        )
-        n_splits = max(available // test_length, 0)
-        for i in range(n_splits, 0, -1):
-            train, test = _split_indices(
-                X, end - i * test_length, test_length_days=self.test_length_days
-            )
-            if len(train) and len(test):
-                yield train, test
-
-    def get_n_splits(self, X, y=None, groups=None, prediction_time=None):
-        return len(list(self.split(X, y, prediction_time=prediction_time)))
-
-
-def train_test_split(X, y, test_start_date="2025-01-01"):
-    if isinstance(test_start_date, str):
-        test_start_date = datetime.datetime.fromisoformat(test_start_date).astimezone(
-            datetime.UTC
-        )
-    train, test = _split_indices(
-        X, test_start_date=test_start_date, test_length_days=24 * 7
-    )
-    return X[train], X[test], y[train], y[test]
-
-
 def transpose_pred(prediction_date, prediction):
     date = [
         prediction_date + datetime.timedelta(hours=int(c.removesuffix("h")))
@@ -440,88 +357,6 @@ def post_process(pred, prediction_time, range_end, quantile_regression):
     return pl.DataFrame({"time": date, "load_mw": load, "quantile": q}).pivot(
         on="quantile", values="load_mw", maintain_order=True, sort_columns=False
     )
-
-
-def split_by_quantile(pred):
-    quantile_cols = {}
-    for c in pred.columns:
-        quantile_cols.setdefault(c.split("__")[1], []).append(c)
-    return {
-        q: pred.select(cols).rename(lambda c: c.split("__")[0])
-        for q, cols in quantile_cols.items()
-    }
-
-
-def neg_mape(y_true, y_pred, quantile_regression=False):
-    if quantile_regression:
-        quantile_predictions = split_by_quantile(y_pred)
-        scores = {}
-        for q, q_pred in quantile_predictions.items():
-            q_neg_mape = neg_mape(y_true, q_pred, quantile_regression=False)
-            scores.update({f"{k}__{q}": v for k, v in q_neg_mape.items()})
-            if q == "q_0.5":
-                # Pick the median if available for comparison with non-quantile
-                # models
-                scores.update(q_neg_mape)
-        return scores
-    average = mean_absolute_percentage_error(y_true, y_pred)
-    detail = mean_absolute_percentage_error(y_true, y_pred, multioutput="raw_values")
-    return {"neg_mape__average": -average} | {
-        f"neg_mape__{c}": -float(s) for c, s in zip(y_true.columns, detail)
-    }
-
-
-def neg_mape_scorer(estimator, X, y, quantile_regression=False):
-    return neg_mape(y, estimator.predict(X), quantile_regression=quantile_regression)
-
-
-def pinball(y_true, y_pred):
-    quantile_predictions = split_by_quantile(y_pred)
-    scores = {}
-    for q, q_pred in quantile_predictions.items():
-        scores[f"d2_pinball_score__average__{q}"] = d2_pinball_score(
-            y_true, q_pred, alpha=float(q.removeprefix("q_"))
-        )
-        detail = d2_pinball_score(y_true, q_pred, multioutput="raw_values")
-        scores.update(
-            {
-                f"d2_pinball_score__{c}__{q}": float(s)
-                for c, s in zip(y_true.columns, detail)
-            }
-        )
-    return scores
-
-
-def pinball_scorer(estimator, X, y):
-    return pinball(y, estimator.predict(X))
-
-
-def coverage(y_true, y_pred, q_low=0.05, q_high=0.95):
-    result = {}
-    for horizon in y_true.columns:
-        low_col = f"{horizon}__q_{q_low}"
-        high_col = f"{horizon}__q_{q_high}"
-        actual = y_true[horizon]
-        inside = (actual >= y_pred[low_col]) & (actual <= y_pred[high_col])
-        result[f"coverage_{q_low}_{q_high}__{horizon}"] = inside.mean()
-    return result
-
-
-def coverage_scorer(estimator, X, y, q_low=0.05, q_high=0.95):
-    return coverage(y, estimator.predict(X), q_low=q_low, q_high=q_high)
-
-
-def mean_width(y_true, y_pred, q_low=0.05, q_high=0.95):
-    result = {}
-    for horizon in y_true.columns:
-        low = y_pred[f"{horizon}__q_{q_low}"]
-        high = y_pred[f"{horizon}__q_{q_high}"]
-        result[f"mean_width_{q_low}_{q_high}__{horizon}"] = (high - low).abs().mean()
-    return result
-
-
-def mean_width_scorer(estimator, X, y, q_low=0.05, q_high=0.95):
-    return mean_width(y, estimator.predict(X), q_low=q_low, q_high=q_high)
 
 
 def _recalibrator_cv():

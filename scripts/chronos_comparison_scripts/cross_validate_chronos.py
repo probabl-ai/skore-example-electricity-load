@@ -1,20 +1,20 @@
 """
 Walk-forward CV for the Chronos pipeline, structured exactly like
-`cross_validate.py` (no skore): the train/test split is only used to produce
+`scripts/cross_validate.py` (no skore): the train/test split is only used to produce
 the skrub fit/predict/single-date reports; the actual scores come from a real
 cross-validation (`elf.cross_val_predict`, iterating over every
-`elf.TimeSeriesSplitter` fold), same as the baseline.
+`electricity_load_forecasting.splitter.TimeSeriesSplitter` fold), same as the baseline.
 
-    python cross_validate_chronos.py
-    python cross_validate_chronos.py --forecaster stub
-    python cross_validate_chronos.py --model amazon/chronos-2 --device cuda
-    python cross_validate_chronos.py --quantiles 0.05 0.5 0.95 --no_weather
+    python scripts/chronos_comparison_scripts/cross_validate_chronos.py
+    python scripts/chronos_comparison_scripts/cross_validate_chronos.py --forecaster stub
+    python scripts/chronos_comparison_scripts/cross_validate_chronos.py --model amazon/chronos-2 --device cuda
+    python scripts/chronos_comparison_scripts/cross_validate_chronos.py --quantiles 0.05 0.5 0.95 --no_weather
 """
 
 import argparse
 
 import electricity_load_forecasting as elf
-import chronos_forecasting as cf
+from electricity_load_forecasting import chronos as cf
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--forecaster", choices=["chronos", "stub"], default="chronos")

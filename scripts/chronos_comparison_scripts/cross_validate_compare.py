@@ -1,44 +1,45 @@
 """
 Walk-forward cross-validation for one pipeline (hgb_mean, hgb_quantile,
 hgb_quantile_recal, tabicl or chronos2), using the same strategy as
-`cross_validate.py`
-(`elf.cross_val_predict`, no skore): iterate over all `elf.TimeSeriesSplitter`
-folds, fit on train, predict and score on test, concatenate across folds.
+`scripts/cross_validate.py`
+(`elf.cross_val_predict`, no skore): iterate over all
+`electricity_load_forecasting.splitter.TimeSeriesSplitter` folds, fit on train,
+predict and score on test, concatenate across folds.
 
 Stores the full predictions (actual + predicted, one row per prediction_time x
 split) as parquet and the per-fold scores as csv, so MAE / pinball / any other
 metric can be recomputed later from `compare_predictions.py` without re-running
 the models.
 
-Run from the repository root (see `chronos_comparison_scripts/README.md`):
+Run from the repository root (see `scripts/chronos_comparison_scripts/README.md`):
 
-    python chronos_comparison_scripts/cross_validate_compare.py \
+    python scripts/chronos_comparison_scripts/cross_validate_compare.py \
         --model hgb_mean --output_dir results/cv_compare_xxx
-    python chronos_comparison_scripts/cross_validate_compare.py \
+    python scripts/chronos_comparison_scripts/cross_validate_compare.py \
         --model hgb_quantile --output_dir results/cv_compare_xxx
-    python chronos_comparison_scripts/cross_validate_compare.py \
+    python scripts/chronos_comparison_scripts/cross_validate_compare.py \
         --model hgb_quantile_recal --max_iter 2000 \
         --output_dir results/cv_compare_xxx
-    python chronos_comparison_scripts/cross_validate_compare.py \
+    python scripts/chronos_comparison_scripts/cross_validate_compare.py \
         --model tabicl --output_dir results/cv_compare_xxx
-    python chronos_comparison_scripts/cross_validate_compare.py \
+    python scripts/chronos_comparison_scripts/cross_validate_compare.py \
         --model tabicl --output_dir results/cv_compare_xxx \
         --tabicl_n_estimators 8 --max_train_rows 0 --tag n8_unlimited
-    python chronos_comparison_scripts/cross_validate_compare.py \
+    python scripts/chronos_comparison_scripts/cross_validate_compare.py \
         --model chronos2 --output_dir results/cv_compare_xxx --device cuda
 
 `hgb_quantile` is `elf.make_data_op(quantile_strategy="multiple_regressors")`:
 one independent `HistGradientBoostingRegressor` per quantile (see
-`quantile_regressor.HGBQuantileRegressor`), as opposed to `hgb_mean`'s single
+`electricity_load_forecasting.quantile_regressor.HGBQuantileRegressor`), as opposed to `hgb_mean`'s single
 mean-output regressor. `hgb_quantile_recal` is the same wrapped in
 `calibration.Recalibrator` (post-hoc correction of the quantiles), with its
 default settings. `--max_iter` applies to the HGB models only (ignored by
 tabicl/chronos2).
 
 All pipelines share the horizons (1, 12, 24), the environment
-(`elf.get_env()`), and `elf.TimeSeriesSplitter` (attached to X the same way in
-`elf.make_data_op` and `cf.make_chronos_data_op`), so folds are identical
-across models.
+(`elf.get_env()`), and `electricity_load_forecasting.splitter.TimeSeriesSplitter`
+(attached to X the same way in `elf.make_data_op` and
+`cf.make_chronos_data_op`), so folds are identical across models.
 """
 
 import argparse
@@ -46,7 +47,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 
 HORIZONS = (1, 12, 24)
@@ -127,7 +128,7 @@ elif args.model == "tabicl":
         max_train_rows=args.max_train_rows or None,
     )
 else:
-    import chronos_forecasting as cf
+    from electricity_load_forecasting import chronos as cf
 
     forecaster = cf.Chronos2Forecaster(
         model=args.chronos_model, device_map=args.device, batch_size=args.batch_size

@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 
-DOCS = Path(__file__).resolve().parent / "docs"
+DOCS = Path(__file__).resolve().parent.parent / "docs"
 SKIP_HTML = re.compile(r"^node_.*\.html$")
 
 

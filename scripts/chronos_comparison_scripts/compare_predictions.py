@@ -4,11 +4,12 @@ files written by `cross_validate_compare.py`, without re-running any model.
 
 Run from the repository root:
 
-    python chronos_comparison_scripts/compare_predictions.py \
+    python scripts/chronos_comparison_scripts/compare_predictions.py \
         results/cv_compare_2026.../*_cv_predictions.parquet
 
 Each input file must have the layout produced by
-`elf.concat_X_y_predictions` + `elf.cross_val_predict`: columns
+`electricity_load_forecasting.concat_X_y_predictions` +
+`electricity_load_forecasting.cross_val_predict`: columns
 `prediction_time`, one actual-value column per horizon (`"{h}h"`), one or more
 prediction columns per horizon (`"pred_{h}h"` for a point forecast, or
 `"pred_{h}h__q_{alpha}"` per quantile), and `split` (CV fold index).
@@ -31,8 +32,8 @@ from pathlib import Path
 import polars as pl
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from electricity_load_forecasting import pinball, split_by_quantile
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from electricity_load_forecasting.metrics import pinball, split_by_quantile
 
 
 def horizons_of(df):
@@ -93,7 +94,7 @@ def compute_scores(df):
     """
     Compute MAE, MAPE and (if available) pinball-d2 scores for one
     `*_cv_predictions.parquet` dataframe. Returns a flat dict of metric name
-    -> value, with the same naming convention as `elf.neg_mape` / `elf.pinball`.
+    -> value, with the same naming convention as `metrics.neg_mape` / `metrics.pinball`.
     """
     horizons = horizons_of(df)
     y_true = df.select([f"{h}h" for h in horizons])

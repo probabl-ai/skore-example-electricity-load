@@ -1,14 +1,14 @@
 """
-Smoke tests for the Chronos pipeline (chronos_forecasting.py).
+Smoke tests for the Chronos pipeline (electricity_load_forecasting/chronos.py).
 
 By default only the stub forecaster (seasonal naive, no model, no GPU) is used.
 It checks the parts that are ours rather than Chronos's: window construction,
 alignment of horizons, causality, the DataOp contract (fit / predict / single
 date / scoring) in mean and quantile modes.
 
-    python smoke_chronos.py
-    python smoke_chronos.py --forecaster chronos --model autogluon/chronos-2-small
-    python smoke_chronos.py --forecaster chronos --device cuda --n_rows 200
+    python scripts/chronos_comparison_scripts/smoke_chronos.py
+    python scripts/chronos_comparison_scripts/smoke_chronos.py --forecaster chronos --model autogluon/chronos-2-small
+    python scripts/chronos_comparison_scripts/smoke_chronos.py --forecaster chronos --device cuda --n_rows 200
 
 With `--forecaster chronos` the real model additionally forecasts `--n_rows`
 prediction times starting 2025-01-01, with and without covariates.
@@ -21,7 +21,7 @@ import numpy as np
 import polars as pl
 
 import electricity_load_forecasting as elf
-import chronos_forecasting as cf
+from electricity_load_forecasting import chronos as cf
 
 HORIZONS = (1, 12, 24)
 CONTEXT_HOURS = 200  # > 168 so that the stub's weekly lag is within the context

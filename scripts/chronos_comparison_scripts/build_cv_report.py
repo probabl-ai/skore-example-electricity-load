@@ -11,7 +11,7 @@ quantiles, the plot shows the true load, the median prediction as a line, and
 the outermost quantile interval (e.g. 5%-95%) as a shaded band, rather than a
 separate line per quantile.
 
-    python chronos_comparison_scripts/build_cv_report.py results/cv_compare_remote
+    python scripts/chronos_comparison_scripts/build_cv_report.py results/cv_compare_remote
 
 Writes `<dir>/report.html` and `<dir>/plots/<model>_<horizon>h.html`.
 """

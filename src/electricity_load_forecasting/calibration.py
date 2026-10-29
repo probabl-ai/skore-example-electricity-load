@@ -11,7 +11,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import SplineTransformer
 
 # Default inner CV when none is given (hourly rows: 7 days between train and
-# test, as in electricity_load_forecasting.TimeSeriesSplitter, which is what
+# test, as in electricity_load_forecasting.splitter.TimeSeriesSplitter, which is what
 # make_data_op uses instead).
 _DEFAULT_GAP_ROWS = 24 * 7
 

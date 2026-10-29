@@ -1,8 +1,8 @@
 """Compare the multiple_regressors quantile strategy with and without
 ``calibration.Recalibrator`` on the real data, with the walk-forward CV.
 
-    python compare_calibration.py                  # run both CVs (slow), write report
-    python compare_calibration.py --report_only results/calibration_...  # redo html only
+    python scripts/calibration/compare_calibration.py                  # run both CVs (slow), write report
+    python scripts/calibration/compare_calibration.py --report_only results/calibration_...  # redo html only
 
 Outputs, in ``results/calibration_<timestamp>/``:
 

@@ -2,7 +2,7 @@
 
 Run from the repository root:
 
-    python calibration_demo.py
+    python scripts/calibration/calibration_demo.py
 
 Writes ``calibration_demo.html``: a self-contained page (plotly embedded)
 explaining the recalibration and showing the plots.
@@ -19,9 +19,9 @@ from plotly.subplots import make_subplots
 from sklearn.metrics import mean_absolute_percentage_error, mean_pinball_loss
 from sklearn.model_selection import TimeSeriesSplit
 
-import electricity_load_forecasting as elf
-from calibration import Recalibrator
-from quantile_regressor import HGBQuantileRegressor
+from electricity_load_forecasting import metrics
+from electricity_load_forecasting.calibration import Recalibrator
+from electricity_load_forecasting.quantile_regressor import HGBQuantileRegressor
 
 QUANTILES = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
 Q_LOW, Q_HIGH = 0.05, 0.95
@@ -92,7 +92,7 @@ def empirical_coverage(y, pred):
 
 
 def interval_metrics(y, pred):
-    """Coverage and mean width of the [Q_LOW, Q_HIGH] interval, via elf."""
+    """Coverage and mean width of the [Q_LOW, Q_HIGH] interval, via metrics."""
     y_df = pl.DataFrame({"1h": y})
     pred_df = pl.DataFrame(
         {
@@ -102,8 +102,8 @@ def interval_metrics(y, pred):
     )
     kwargs = dict(q_low=Q_LOW, q_high=Q_HIGH)
     # each returns a one-entry dict (a single "1h" column here)
-    (coverage,) = elf.coverage(y_df, pred_df, **kwargs).values()
-    (width,) = elf.mean_width(y_df, pred_df, **kwargs).values()
+    (coverage,) = metrics.coverage(y_df, pred_df, **kwargs).values()
+    (width,) = metrics.mean_width(y_df, pred_df, **kwargs).values()
     return float(coverage), float(width)
 
 
@@ -614,7 +614,7 @@ diagonal.</p>
 
 <h2>Metrics on the test set</h2>
 {metrics}
-<p>Coverage and width are computed with <code>electricity_load_forecasting.coverage</code> and
+<p>Coverage and width are computed with <code>electricity_load_forecasting.metrics.coverage</code> and
 <code>mean_width</code>. The pinball loss (lower is better) is averaged over all the
 quantile levels, and the MAPE is that of the median prediction
 (<code>mean_absolute_percentage_error</code>). Recalibration restores the nominal coverage at

@@ -1,14 +1,15 @@
 # Chronos vs. baseline comparison scripts
 
-Ad hoc tooling built to compare `chronos_forecasting.py` against the baseline
-pipelines (`hgb_mean`, `hgb_quantile`, `tabicl`) with a full walk-forward CV
-(`elf.cross_val_predict`, no skore -- see `cross_validate.py` at the repo
-root for the pattern these follow). Kept separate from the repo root because
-there are several of them and they're specific to this investigation rather
-than part of the core pipeline; run them from the repository root, e.g.:
+Ad hoc tooling built to compare `electricity_load_forecasting.chronos` against
+the baseline pipelines (`hgb_mean`, `hgb_quantile`, `tabicl`) with a full
+walk-forward CV (`elf.cross_val_predict`, no skore -- see
+`scripts/cross_validate.py` for the pattern these follow). Kept separate from
+the repo root because there are several of them and they're specific to this
+investigation rather than part of the core pipeline; run them from the
+repository root, e.g.:
 
 ```
-python chronos_comparison_scripts/cross_validate_compare.py --model chronos2 \
+python scripts/chronos_comparison_scripts/cross_validate_compare.py --model chronos2 \
     --output_dir results/cv_compare_xxx --device cuda
 ```
 
@@ -41,7 +42,7 @@ python chronos_comparison_scripts/cross_validate_compare.py --model chronos2 \
   model.
 
 For a report-focused single run (skrub fit/predict/single-date reports, same
-structure as `cross_validate.py`), use `cross_validate_chronos.py` at the repo
-root instead -- it also scores via the full walk-forward CV, just for one
-model configuration with reports rather than many configurations compared
-side by side.
+structure as `scripts/cross_validate.py`), use
+`scripts/chronos_comparison_scripts/cross_validate_chronos.py` instead -- it
+also scores via the full walk-forward CV, just for one model configuration
+with reports rather than many configurations compared side by side.

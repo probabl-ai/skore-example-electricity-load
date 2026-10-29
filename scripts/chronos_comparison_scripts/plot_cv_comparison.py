@@ -12,7 +12,7 @@ duplicated here.
 
 Run from the repository root:
 
-    python chronos_comparison_scripts/plot_cv_comparison.py results/cv_compare_remote
+    python scripts/chronos_comparison_scripts/plot_cv_comparison.py results/cv_compare_remote
 
 Writes one HTML file per horizon (1h, 12h, 24h) into `<dir>/plots/`. See also
 `build_cv_report.py` for a report with separate (non-overlaid) plots per
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import polars as pl
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 
 from compare_predictions import horizons_of, quantile_levels_of

@@ -5,7 +5,7 @@ directory, in the same style as the report built by `compare_calibration.py`
 per quantile, binned and isotonic), but overlaying all the models found there
 (e.g. hgb_quantile, hgb_quantile_recal, tabicl).
 
-    python chronos_comparison_scripts/build_calibration_report.py results/cv_compare_tabicl
+    python scripts/chronos_comparison_scripts/build_calibration_report.py results/cv_compare_tabicl
 
 Writes `<dir>/calibration.html`.
 """
@@ -18,7 +18,8 @@ import polars as pl
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "calibration"))
 import compare_calibration as cc
 
 IDEAL = "gray"

@@ -7,7 +7,7 @@ several dates of that fold's test period (out of sample for the fitted models)
 and plots, for each, both fans (median and 5-95% interval) with the surrounding
 history and the observed load.
 
-    python single_date_calibration.py --date 2023-12-04T09:00 --n_dates 10
+    python scripts/calibration/single_date_calibration.py --date 2023-12-04T09:00 --n_dates 10
 
 Writes ``single_date_calibration.html``.
 """
