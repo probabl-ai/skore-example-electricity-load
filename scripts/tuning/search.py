@@ -32,10 +32,10 @@ parser.add_argument(
     help="limit each training set to its last this many rows",
 )
 parser.add_argument(
-    "--quantile_strategy",
-    default=None,
-    choices=[None, "multiple_regressors", "binning", "tabicl"],
-    help="quantile strategy passed to make_data_op (default: point forecast)",
+    "--model",
+    default="hgb_mean",
+    choices=["hgb_mean", "hgb_quantile", "binning", "tabicl"],
+    help="model passed to make_data_op (default: hgb_mean point forecast)",
 )
 parser.add_argument(
     "--quantiles",
@@ -65,9 +65,10 @@ print(f"output_dir: {output_dir}", flush=True)
 print(f"optuna storage: {storage}", flush=True)
 
 env = elf.get_env()
-op_kwargs = dict(max_train_rows=args.max_train_rows, max_iter=args.max_iter)
-if args.quantile_strategy is not None:
-    op_kwargs["quantile_strategy"] = args.quantile_strategy
+op_kwargs = dict(
+    model=args.model, max_train_rows=args.max_train_rows, max_iter=args.max_iter
+)
+if args.model != "hgb_mean":
     op_kwargs["quantiles"] = tuple(args.quantiles or (0.05, 0.5, 0.95))
 pred = elf.make_data_op(**op_kwargs)
 

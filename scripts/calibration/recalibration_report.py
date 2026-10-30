@@ -748,7 +748,7 @@ PAGE = """<!DOCTYPE html>
 <body>
 <h1>Recalibration of the quantile regressor on the real data</h1>
 <p>Walk-forward CV of the data op with
-<code>quantile_strategy="multiple_regressors"</code> (HGB, <code>max_iter={max_iter}</code>),
+<code>model="hgb_quantile"</code> (HGB, <code>max_iter={max_iter}</code>),
 horizons {horizons}, quantiles {quantiles}, {n_splits} CV splits, with
 (<code>recalibrate=True</code>, {n_bins} bins, calibrated on {calibration_window}) and without
 <code>calibration.Recalibrator</code>. See <code>calibration_demo.html</code> for how the

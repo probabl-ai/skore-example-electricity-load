@@ -21,7 +21,7 @@ Run from the repository root:
         --model hgb_quantile_recal --max_iter 2000 \
         --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
-        --model tabicl --tabicl_n_estimators 8 --max_train_rows 0 \
+        --model tabicl --max_train_rows 0 \
         --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
         --model kumo_tabular --max_train_rows 0 \
@@ -35,7 +35,7 @@ Run from the repository root:
 
 Use `--reports` to also write the skrub fit/predict/single-date reports.
 
-`hgb_quantile` is `elf.make_data_op(quantile_strategy="multiple_regressors")`:
+`hgb_quantile` is `elf.make_data_op(model="hgb_quantile")`:
 one independent `HistGradientBoostingRegressor` per quantile (see
 `electricity_load_forecasting.quantile_regressor.HGBQuantileRegressor`), as
 opposed to `hgb_mean`'s single mean-output regressor. `hgb_quantile_recal` is
@@ -115,8 +115,6 @@ parser.add_argument(
     default=QUANTILES,
     help="quantile levels to predict (default: 0.05 0.5 0.95)",
 )
-# tabicl-specific
-parser.add_argument("--tabicl_n_estimators", type=int, default=1)
 parser.add_argument(
     "--max_train_rows",
     type=int,
@@ -131,19 +129,19 @@ name = args.model + (f"_{args.tag}" if args.tag else "")
 
 if args.model == "hgb_mean":
     pred = elf.make_data_op(
-        horizons=HORIZONS, quantile_strategy=None, max_iter=args.max_iter
+        horizons=HORIZONS, model="hgb_mean", max_iter=args.max_iter
     )
 elif args.model == "hgb_quantile":
     pred = elf.make_data_op(
         horizons=HORIZONS,
-        quantile_strategy="multiple_regressors",
+        model="hgb_quantile",
         quantiles=args.quantiles,
         max_iter=args.max_iter,
     )
 elif args.model == "hgb_quantile_recal":
     pred = elf.make_data_op(
         horizons=HORIZONS,
-        quantile_strategy="multiple_regressors",
+        model="hgb_quantile",
         quantiles=args.quantiles,
         max_iter=args.max_iter,
         recalibrate=True,
@@ -151,15 +149,14 @@ elif args.model == "hgb_quantile_recal":
 elif args.model == "tabicl":
     pred = elf.make_data_op(
         horizons=HORIZONS,
-        quantile_strategy="tabicl",
+        model="tabicl",
         quantiles=args.quantiles,
-        tabicl_n_estimators=args.tabicl_n_estimators,
         max_train_rows=args.max_train_rows or None,
     )
 elif args.model == "kumo_tabular":
     pred = elf.make_data_op(
         horizons=HORIZONS,
-        quantile_strategy="kumo_tabular",
+        model="kumo_tabular",
         quantiles=args.quantiles,
         max_train_rows=args.max_train_rows or None,
     )

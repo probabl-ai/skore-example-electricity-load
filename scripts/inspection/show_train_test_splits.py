@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import electricity_load_forecasting as elf
 
-pred = elf.make_data_op(horizons=(1,), quantile_strategy=None)
+pred = elf.make_data_op(horizons=(1,), model="hgb_mean")
 env = elf.get_env()
 
 

@@ -55,7 +55,6 @@ parser.add_argument(
 )
 parser.add_argument("--output_dir", type=Path, default=None)
 parser.add_argument("--max_iter", type=int, default=3000, help="HGB only")
-parser.add_argument("--tabicl_n_estimators", type=int, default=1)
 parser.add_argument("--quantiles", type=float, nargs="+", default=[0.05, 0.5, 0.95])
 parser.add_argument("--horizons", type=int, nargs="+", default=[1, 12, 24])
 args = parser.parse_args()
@@ -73,13 +72,10 @@ def build_data_op(max_train_rows):
         horizons=tuple(args.horizons), max_train_rows=max_train_rows or None
     )
     if args.model == "hgb_mean":
-        return elf.make_data_op(
-            quantile_strategy=None, max_iter=args.max_iter, **kwargs
-        )
+        return elf.make_data_op(model="hgb_mean", max_iter=args.max_iter, **kwargs)
     return elf.make_data_op(
-        quantile_strategy="tabicl",
+        model="tabicl",
         quantiles=tuple(args.quantiles),
-        tabicl_n_estimators=args.tabicl_n_estimators,
         **kwargs,
     )
 

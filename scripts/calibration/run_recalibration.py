@@ -26,7 +26,7 @@ def run_cv(recalibrate, horizons, quantiles, max_iter, env):
     """Walk-forward CV like ``elf.cross_val_predict``, keeping the corrections."""
     data_op = elf.make_data_op(
         horizons=horizons,
-        quantile_strategy="multiple_regressors",
+        model="hgb_quantile",
         quantiles=quantiles,
         max_iter=max_iter,
         recalibrate=recalibrate,

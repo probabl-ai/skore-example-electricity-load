@@ -42,7 +42,7 @@ HOUR_OFFSETS = (0, 5, 11, 17, 23, 4, 10, 16, 22, 3)
 def make_op(recalibrate, args):
     return elf.make_data_op(
         horizons=tuple(range(1, 25)),
-        quantile_strategy="multiple_regressors",
+        model="hgb_quantile",
         quantiles=QUANTILES,
         max_iter=args.max_iter,
         recalibrate=recalibrate,

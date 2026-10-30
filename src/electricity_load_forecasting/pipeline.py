@@ -392,9 +392,8 @@ def limit_train_size(df, size=9000, mode=skrub.eval_mode()):
 
 def make_data_op(
     horizons=(1, 12, 24),
-    quantile_strategy=None,
+    model="hgb_mean",
     quantiles=(0.05, 0.5, 0.95),
-    tabicl_n_estimators=1,
     max_train_rows=None,
     max_iter=3000,
     recalibrate=False,
@@ -423,14 +422,10 @@ def make_data_op(
        with a city name and must return a lazyframe with columns similar to
        those of datasets/weather_paris.parquet.
 
-    tabicl_n_estimators : int, default=1
-        Number of estimators for ``TabICLRegressor`` (ignored unless
-        ``quantile_strategy == "tabicl"``). TabICL ensembles over estimators
-        fit on different row/feature permutations; more estimators costs
-        proportionally more inference compute.
-
-    Quantile strategy ``"kumo_tabular"`` uses the default large Kumo-Tabular
-    model with one estimator on CUDA if available.
+    model : {"hgb_mean", "hgb_quantile", "binning", "tabicl", "kumo_tabular"}, default="hgb_mean"
+        Prediction model or strategy. ``"hgb_mean"`` is the HGB point
+        forecast; the others are quantile strategies. TabICL and Kumo-Tabular
+        both use 8 estimators.
 
     max_train_rows : int or None, default=None
         Max number of rows used for training.
@@ -439,13 +434,13 @@ def make_data_op(
         If True, wrap the quantile regressor of each horizon in a
         ``calibration.Recalibrator``, which corrects its predicted quantiles
         based on their out-of-fold reliability (see that class). Only
-        supported for ``quantile_strategy == "multiple_regressors"``. The
-        recalibrator's inner CV is ``_recalibrator_cv()``.
+        supported for ``model == "hgb_quantile"``. The recalibrator's
+        inner CV is ``_recalibrator_cv()``.
     """
-    if recalibrate and quantile_strategy != "multiple_regressors":
+    if recalibrate and model != "hgb_quantile":
         raise ValueError(
             "recalibrate=True is only supported with "
-            f"quantile_strategy='multiple_regressors', got {quantile_strategy!r}"
+            f"model='hgb_quantile', got {model!r}"
         )
     range_start = skrub.var("start").skb.set_description(
         "The first time at which a prediction is made."
@@ -493,7 +488,7 @@ def make_data_op(
     cities = skrub.choose_from(["all", ["paris", "lyon", "marseille"]], name="cities")
 
     quantiles_to_predict = skrub.var("quantiles", quantiles, becomes_default=True)
-    quantile_regression = quantile_strategy is not None
+    quantile_regression = model != "hgb_mean"
     learning_rate = skrub.choose_float(
         0.01, 0.7, default=0.1, log=True, name="learning_rate"
     )
@@ -521,29 +516,29 @@ def make_data_op(
     binned_q_regressor = BinnedQuantileRegressor()
     predict_kwargs = None
     fit_kwargs = None
-    if quantile_strategy == "binning":
+    if model == "binning":
         predictor = binned_q_regressor
         predict_kwargs = {"quantiles": quantiles_to_predict}
-    elif quantile_strategy == "multiple_regressors":
+    elif model == "hgb_quantile":
         predictor = hgb_q_regressor
         if recalibrate:
             predictor = Recalibrator(hgb_q_regressor, cv=_recalibrator_cv())
             # the inner CV needs the prediction times of the training rows, which
             # are not in the numpy array of features that the estimator receives
             fit_kwargs = {"split_kwargs": {"prediction_time": X["prediction_time"]}}
-    elif quantile_strategy == "tabicl":
+    elif model == "tabicl":
         from tabicl import TabICLRegressor
 
-        predictor = TabICLRegressor(n_estimators=tabicl_n_estimators)
+        predictor = TabICLRegressor(n_estimators=8)
         predict_kwargs = {"output_type": "quantiles", "alphas": quantiles_to_predict}
-    elif quantile_strategy == "kumo_tabular":
+    elif model == "kumo_tabular":
         from .kumotabular import KumoTabularRegressor
 
-        predictor = KumoTabularRegressor(quantiles=quantiles)
-    elif quantile_strategy is None:
+        predictor = KumoTabularRegressor(quantiles=quantiles, n_estimators=8)
+    elif model == "hgb_mean":
         predictor = hgb_regressor
     else:
-        raise ValueError(f"Bad quantile strategy: {quantile_strategy!r}")
+        raise ValueError(f"Bad model: {model!r}")
     all_pred = {}
     for h in horizons:
         h_pred = (
@@ -571,7 +566,7 @@ def make_data_op(
                 predict_kwargs=predict_kwargs,
             )
         )
-        if quantile_strategy == "tabicl":
+        if model == "tabicl":
             h_pred = h_pred.skb.apply_func(tabicl_quantiles_to_df, quantiles_to_predict)
         all_pred[h] = h_pred.skb.set_name(f"pred_{h}h").skb.set_description(
             f"Predicted load {h} hours after the 'prediction_time' in X."

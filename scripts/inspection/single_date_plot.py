@@ -14,13 +14,13 @@ import electricity_load_forecasting as elf
 OUTPUT_DIR = ROOT / "results" / "inspection"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--quantile_strategy", default="tabicl")
+parser.add_argument("--model", default="tabicl")
 args = parser.parse_args()
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # %%
 
-pred = elf.make_data_op(horizons=tuple(range(1, 25)), quantile_strategy=None)
+pred = elf.make_data_op(horizons=tuple(range(1, 25)), model="hgb_mean")
 env = elf.get_env()
 
 split = pred.skb.train_test_split(environment=env)
@@ -56,7 +56,7 @@ fig.write_html(OUTPUT_DIR / "example-mean.html")
 # %%
 pred = elf.make_data_op(
     horizons=tuple(range(1, 25)),
-    quantile_strategy=args.quantile_strategy,
+    model=args.model,
     quantiles=(0.05, 0.5, 0.95),
 )
 learner = pred.skb.make_learner().fit(split["train"])
@@ -112,4 +112,4 @@ fig.update_layout(height=700)
 fig.show(renderer="browser")
 
 # %%
-fig.write_html(OUTPUT_DIR / f"example-{args.quantile_strategy}-90.html")
+fig.write_html(OUTPUT_DIR / f"example-{args.model}-90.html")

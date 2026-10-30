@@ -3,7 +3,7 @@
 Kumo-Tabular is an in-context tabular regression model from
 ``structured-data-models`` (``sdm.models.KumoTabular``). This module wraps it in
 an sklearn-like estimator so it can be used like TabICL in
-``pipeline.make_data_op(quantile_strategy="kumo_tabular")``.
+``pipeline.make_data_op(model="kumo_tabular")``.
 
 The model predicts 999 quantiles (``q001``-``q999``); this wrapper extracts the
 requested quantile levels and returns a polars DataFrame with ``q_<level>``

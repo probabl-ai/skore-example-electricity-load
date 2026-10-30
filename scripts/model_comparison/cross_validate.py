@@ -12,27 +12,25 @@ import electricity_load_forecasting as elf
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--quantile_strategy",
-    default=None,
-    choices=["tabicl", "multiple_regressors", "binning"],
+    "--model",
+    default="hgb_mean",
+    choices=["hgb_mean", "tabicl", "hgb_quantile", "binning"],
 )
 parser.add_argument("--max_iter", default=3000, type=int)
 parser.add_argument(
     "--recalibrate",
     action="store_true",
     help="wrap the quantile regressor in calibration.Recalibrator "
-    "(only with --quantile_strategy multiple_regressors)",
+    "(only with --model hgb_quantile)",
 )
 args = parser.parse_args()
-
-quantile_strategy = args.quantile_strategy
 
 output_dir = elf.get_output_dir("model_comparison/cross_validate_")
 
 env = elf.get_env()
 pred = elf.make_data_op(
     horizons=(1, 12, 24),
-    quantile_strategy=quantile_strategy,
+    model=args.model,
     max_iter=args.max_iter,
     recalibrate=args.recalibrate,
 )

@@ -7,7 +7,7 @@ import electricity_load_forecasting as elf
 
 output_dir = ROOT / "results" / "inspection"
 output_dir.mkdir(parents=True, exist_ok=True)
-pred = elf.make_data_op(quantile_strategy="tabicl")
+pred = elf.make_data_op(model="tabicl")
 graph = pred.skb.draw_graph()
 with open(output_dir / "graph.svg", "wb") as f:
     f.write(graph.svg)
