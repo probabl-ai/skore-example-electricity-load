@@ -29,10 +29,16 @@ chronos = [
 tabicl = [
     "tabicl",
 ]
+kumo = [
+    "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@78130b67d1712232c38089c54687b30b8b032ec6",
+]
 skore = [
     "python-dotenv",
     "skore",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/electricity_load_forecasting"]

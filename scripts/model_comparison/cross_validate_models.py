@@ -25,6 +25,9 @@ Run from the repository root:
     python scripts/model_comparison/cross_validate_models.py \
         --model chronos2 --device cuda \
         --output_dir results/model_comparison/my_study
+    python scripts/model_comparison/cross_validate_models.py \
+        --model kumo --device cuda \
+        --output_dir results/model_comparison/my_study
 
 Use `--reports` to also write the skrub fit/predict/single-date reports.
 
@@ -63,6 +66,7 @@ parser.add_argument(
         "hgb_quantile_recal",
         "tabicl",
         "chronos2",
+        "kumo",
     ],
     required=True,
 )
@@ -94,6 +98,11 @@ parser.add_argument("--batch_size", type=int, default=256)
 parser.add_argument("--context_hours", type=int, default=1024)
 parser.add_argument("--no_weather", action="store_true")
 parser.add_argument("--no_calendar", action="store_true")
+# kumo-specific
+parser.add_argument("--kumo_context_hours", type=int, default=512)
+parser.add_argument("--kumo_num_estimators", type=int, default=1)
+parser.add_argument("--kumo_chunk_size", type=int, default=8)
+parser.add_argument("--kumo_no_cross_channel", action="store_true")
 parser.add_argument(
     "--quantiles",
     type=float,
@@ -142,7 +151,7 @@ elif args.model == "tabicl":
         tabicl_n_estimators=args.tabicl_n_estimators,
         max_train_rows=args.max_train_rows or None,
     )
-else:
+elif args.model == "chronos2":
     from electricity_load_forecasting import chronos as cf
 
     if args.forecaster == "stub":
@@ -162,6 +171,24 @@ else:
         cities=() if args.no_weather else "all",
         temperature_only=True,
         calendar=not args.no_calendar,
+        verbose=True,
+    )
+else:
+    from electricity_load_forecasting import kumo as kf
+
+    forecaster = kf.KumoForecastForecaster(
+        device=args.device,
+        cross_channel=not args.kumo_no_cross_channel,
+        num_estimators=args.kumo_num_estimators,
+    )
+    pred = kf.make_kumo_data_op(
+        horizons=HORIZONS,
+        forecaster=forecaster,
+        context_hours=args.kumo_context_hours,
+        cities=() if args.no_weather else "all",
+        temperature_only=True,
+        calendar=not args.no_calendar,
+        chunk_size=args.kumo_chunk_size,
         verbose=True,
     )
 
