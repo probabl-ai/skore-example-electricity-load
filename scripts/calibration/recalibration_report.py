@@ -546,8 +546,8 @@ def fig_corrections(corrections, q, raw, n_bins):
             col=j,
             exclude_empty_subplots=False,
         )
+        per_split = {}
         for s in splits:
-            color = palette[s % len(palette)]
             curve = corrections.filter(
                 (pl.col("horizon") == h)
                 & (pl.col("split") == s)
@@ -564,16 +564,29 @@ def fig_corrections(corrections, q, raw, n_bins):
             x_test = np.array(tb["x"])
             shift_test = np.array(tb["residual_shift"])
             customdata = np.column_stack([tb["count"], shift_test])
-            for row, (y_points, y_curve) in enumerate(
-                [
-                    (x_test + shift_test, curve["x"] + curve["y"]),
-                    (shift_test, curve["y"]),
-                ],
-                1,
-            ):
+            per_split[s] = (curve, x_test, shift_test, customdata)
+        all_x = np.concatenate(
+            [curve["x"].to_numpy() for curve, _, _, _ in per_split.values()]
+            + [x_test for _, x_test, _, _ in per_split.values()]
+        )
+        x_lo, x_hi = float(all_x.min()), float(all_x.max())
+        pad = 0.05 * (x_hi - x_lo) if x_hi > x_lo else 1.0
+        xlim = [x_lo - pad, x_hi + pad]
+        for s in splits:
+            color = palette[s % len(palette)]
+            curve, x_test, shift_test, customdata = per_split[s]
+            xs = curve["x"].to_numpy()
+            shifts = curve["y"].to_numpy()
+            # The spline uses constant extrapolation: show the flat extension
+            # on both sides of the learned range.
+            x_ext = np.concatenate([[xlim[0]], xs, [xlim[1]]])
+            shift_ext = np.concatenate([[shifts[0]], shifts, [shifts[-1]]])
+            for row in (1, 2):
+                y_curve = x_ext + shift_ext if row == 1 else shift_ext
+                y_points = x_test + shift_test if row == 1 else shift_test
                 fig.add_trace(
                     go.Scatter(
-                        x=curve["x"],
+                        x=x_ext,
                         y=y_curve,
                         mode="lines",
                         line=dict(color=color, width=2),
@@ -601,6 +614,8 @@ def fig_corrections(corrections, q, raw, n_bins):
                     row=row,
                     col=j,
                 )
+        for row in (1, 2):
+            fig.update_xaxes(range=xlim, row=row, col=j)
         fig.update_xaxes(title_text="predicted value (MW)", row=2, col=j)
     fig.update_yaxes(title_text=f"actual {column} of the bin (MW)", row=1, col=1)
     fig.update_yaxes(title_text="correction = actual - predicted (MW)", row=2, col=1)

@@ -1,0 +1,29 @@
+<h2>Reading the results</h2>
+<p><code>max_iter=2000</code>, new splitter (8 outer test folds of 13 weeks, aligned to the end,
+2023-06-03 to 2025-05-31), calibration on the last 4 inner folds of each training set
+(4 x 13 weeks, about 8.7k out-of-fold rows per split), 10 bins. Runtime was 1h45 (raw 27 min,
+recalibrated 78 min).</p>
+<ul>
+  <li><b>Coverage of the 90% interval</b> (raw &rarr; recalibrated): 0.815 &rarr; 0.904 (1h),
+  0.764 &rarr; 0.910 (12h), 0.761 &rarr; 0.904 (24h). Width: 2.2 &rarr; 2.7 GW (1h, +26%),
+  3.3 &rarr; 4.8 GW (12h, +44%), 3.3 &rarr; 4.8 GW (24h, +45%). These are very close to the earlier
+  5-fold/`max_iter=1000` run (0.909 / 0.901 / 0.898 with +25% / +42% / +45%).</li>
+  <li><b>d2 pinball</b> averaged over the 7 quantiles: 0.8213 &rarr; 0.8284. It improves in the tails
+  (q_0.05 +0.015, q_0.1 +0.010, q_0.9 +0.017, q_0.95 +0.017) and slightly degrades in the centre
+  (q_0.25 &minus;0.004, q_0.5 &minus;0.007). MAPE of the median: 1.11% &rarr; 1.12% (1h),
+  1.96% &rarr; 2.05% (12h), 1.97% &rarr; 2.06% (24h).</li>
+  <li><b>Per split, coverage improves everywhere</b> (24h, raw &rarr; recalibrated): 0.653 &rarr; 0.889,
+  0.785 &rarr; 0.884, 0.773 &rarr; 0.909, 0.788 &rarr; 0.928, 0.758 &rarr; 0.957, 0.763 &rarr; 0.904,
+  0.759 &rarr; 0.856, 0.807 &rarr; 0.907. Unlike the earlier 5-fold runs, the first splits now improve
+  too: with 8 shorter folds and a calibration window of the last 4 inner folds (about 1 year),
+  the out-of-fold data is much closer in time to each test fold. Split 4 (test from 2024-06-01)
+  over-corrects (0.957 at 24h, 0.974 at 1h).</li>
+  <li><b>The centre is still pushed down.</b> Pooled share of observations below the predicted
+  quantile at 24h: q_0.05 0.034, q_0.25 0.178, q_0.5 0.409, q_0.75 0.691, q_0.95 0.938 (targets
+  0.05 / 0.25 / 0.5 / 0.75 / 0.95; raw 0.115 / 0.319 / 0.458 / 0.611 / 0.876). The correction fixes
+  the tails more than the centre, which is why the interval coverage is right while the median
+  accuracy is slightly lower.</li>
+  <li><b>Iterations.</b> At `max_iter=2000` the central quantiles still hit the cap (q_0.25, q_0.5,
+  q_0.75: 100% of the 24 models per horizon), while q_0.05 (mean 1380) and q_0.95 (mean 1146) stop
+  earlier. More iterations would probably still change the centre.</li>
+</ul>
