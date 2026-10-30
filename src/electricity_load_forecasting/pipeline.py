@@ -498,7 +498,7 @@ def make_data_op(
         2, 128, default=31, log=True, name="max_leaf_nodes"
     )
     min_samples_leaf = skrub.choose_int(
-        2, 64, default=20, log=True, name="min_samples_leaf"
+        2, 128, default=20, log=True, name="min_samples_leaf"
     )
     hgb_params = dict(
         random_state=0,
