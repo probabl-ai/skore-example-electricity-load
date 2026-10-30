@@ -429,6 +429,9 @@ def make_data_op(
         fit on different row/feature permutations; more estimators costs
         proportionally more inference compute.
 
+    Quantile strategy ``"kumo_tabular"`` uses the default large Kumo-Tabular
+    model with one estimator on CUDA if available.
+
     max_train_rows : int or None, default=None
         Max number of rows used for training.
 
@@ -533,6 +536,10 @@ def make_data_op(
 
         predictor = TabICLRegressor(n_estimators=tabicl_n_estimators)
         predict_kwargs = {"output_type": "quantiles", "alphas": quantiles_to_predict}
+    elif quantile_strategy == "kumo_tabular":
+        from .kumotabular import KumoTabularRegressor
+
+        predictor = KumoTabularRegressor(quantiles=quantiles)
     elif quantile_strategy is None:
         predictor = hgb_regressor
     else:

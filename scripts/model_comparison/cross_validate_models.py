@@ -1,6 +1,7 @@
 """
 Walk-forward cross-validation for one pipeline (hgb_mean, hgb_quantile,
-hgb_quantile_recal, tabicl or chronos2), using the same strategy as
+hgb_quantile_recal, tabicl, kumo_tabular, chronos2 or kumo), using the same
+strategy as
 `cross_validate.py` (`elf.cross_val_predict`, no skore): iterate over all
 `electricity_load_forecasting.splitter.TimeSeriesSplitter` folds, fit on train,
 predict and score on test, concatenate across folds.
@@ -21,6 +22,9 @@ Run from the repository root:
         --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
         --model tabicl --tabicl_n_estimators 8 --max_train_rows 0 \
+        --output_dir results/model_comparison/my_study
+    python scripts/model_comparison/cross_validate_models.py \
+        --model kumo_tabular --max_train_rows 0 \
         --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
         --model chronos2 --device cuda \
@@ -65,6 +69,7 @@ parser.add_argument(
         "hgb_quantile",
         "hgb_quantile_recal",
         "tabicl",
+        "kumo_tabular",
         "chronos2",
         "kumo",
     ],
@@ -116,8 +121,8 @@ parser.add_argument(
     "--max_train_rows",
     type=int,
     default=9000,
-    help="cap on training rows for tabicl (see elf.make_data_op's docstring); "
-    "0 disables the cap",
+    help="cap on training rows for tabicl/kumo_tabular (see "
+    "elf.make_data_op's docstring); 0 disables the cap",
 )
 args = parser.parse_args()
 
@@ -149,6 +154,13 @@ elif args.model == "tabicl":
         quantile_strategy="tabicl",
         quantiles=args.quantiles,
         tabicl_n_estimators=args.tabicl_n_estimators,
+        max_train_rows=args.max_train_rows or None,
+    )
+elif args.model == "kumo_tabular":
+    pred = elf.make_data_op(
+        horizons=HORIZONS,
+        quantile_strategy="kumo_tabular",
+        quantiles=args.quantiles,
         max_train_rows=args.max_train_rows or None,
     )
 elif args.model == "chronos2":
