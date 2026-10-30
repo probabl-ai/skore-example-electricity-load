@@ -7,6 +7,8 @@ root; the `electricity_load_forecasting` package is installed from `src/`.
   reports, single-date case studies and the pedagogical demo.
 - `model_comparison/` — run comparable walk-forward CV predictions for several
   model families and build metrics/calibration comparison reports.
+- `history_length/` — walk-forward CV with different `max_train_rows` caps, to
+  study how much training history helps and what it costs in compute.
 - `tuning/` — hyperparameter search with Optuna.
 - `inspection/` — data/pipeline diagnostics and stable stakeholder reports.
 - `checks/` — contract and smoke checks for optional model backends.

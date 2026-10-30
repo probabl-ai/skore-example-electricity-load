@@ -25,6 +25,8 @@ import plotly.graph_objects as go
 import polars as pl
 from compare_predictions import compare, horizons_of, quantile_levels_of
 
+PRED_COLOR = "#1f77b4"
+
 parser = argparse.ArgumentParser()
 parser.add_argument("dir", type=Path)
 args = parser.parse_args()
@@ -132,7 +134,7 @@ def add_model_traces(fig, df, name, h, *, row=None, col=None, showlegend=True, c
                 x=target_time,
                 y=df[f"pred_{h}h__q_{median}"],
                 mode="lines",
-                line={} if color is None else {"color": color},
+                line={"color": color or PRED_COLOR},
                 name="pred_load_mw (median)",
                 hovertemplate=hover,
                 showlegend=showlegend,
@@ -144,7 +146,7 @@ def add_model_traces(fig, df, name, h, *, row=None, col=None, showlegend=True, c
                 x=target_time,
                 y=df[f"pred_{h}h"],
                 mode="lines",
-                line={} if color is None else {"color": color},
+                line={"color": color or PRED_COLOR},
                 name="pred_load_mw",
                 hovertemplate=hover,
                 showlegend=showlegend,

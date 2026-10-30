@@ -11,6 +11,8 @@ SKIP_HTML = re.compile(r"^node_.*\.html$")
 SECTION_TITLES = {
     "calibration": "Calibration",
     "model-comparison": "Model comparison",
+    "retraining-frequency": "Retraining frequency",
+    "history-length": "Training-history length",
     "tuning": "Hyperparameter tuning",
     "inspection": "Inspection and diagnostics",
     "checks": "Checks",

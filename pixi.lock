@@ -1061,6 +1061,7 @@ packages:
   - chronos-forecasting ; extra == 'chronos'
   - torch ; extra == 'chronos'
   - tabicl ; extra == 'tabicl'
+  - structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@78130b67d1712232c38089c54687b30b8b032ec6 ; extra == 'kumo'
   - python-dotenv ; extra == 'skore'
   - skore ; extra == 'skore'
   requires_python: '>=3.11'
