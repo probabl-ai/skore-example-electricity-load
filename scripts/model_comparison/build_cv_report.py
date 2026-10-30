@@ -9,21 +9,26 @@ Plots are written as separate standalone HTML files under `<dir>/plots/` (kept
 out of the main page so it stays small and fast to load). For models with
 quantiles, the plot shows the true load, the median prediction as a line, and
 the outermost quantile interval (e.g. 5%-95%) as a shaded band, rather than a
-separate line per quantile.
+separate line per quantile. A separate `pareto.html` page compares average MAPE
+and average pinball loss against total fit + predict time.
 
     python scripts/model_comparison/build_cv_report.py results/model_comparison/my_study
 
-Writes `<dir>/report.html` and `<dir>/plots/<model>_<horizon>h.html`.
+Writes `<dir>/report.html`, `<dir>/pareto.html` and
+`<dir>/plots/<model>_<horizon>h.html`.
 """
 
 import argparse
 import datetime
+import re
 from html import escape
 from pathlib import Path
 
+import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 from compare_predictions import compare, horizons_of, quantile_levels_of
+from sklearn.metrics import mean_pinball_loss
 
 PRED_COLOR = "#1f77b4"
 
@@ -37,6 +42,206 @@ if not paths:
 frames = {p.stem.removesuffix("_cv_predictions"): pl.read_parquet(p) for p in paths}
 
 results, table = compare(paths)
+
+
+def fit_predict_time_seconds(path):
+    """Total fit + score time over all CV folds for one prediction file.
+
+    Uses the per-fold timings in the sibling scores CSV when available, and
+    falls back to the total printed in the run log for older runs.
+    """
+    source = path.resolve()
+    stem = path.stem.removesuffix("_cv_predictions")
+    candidates = []
+    for directory in (path.parent, source.parent):
+        candidates.append(directory / f"{stem}_scores.csv")
+        candidates.extend(sorted(directory.glob("*_scores.csv")))
+    for score_path in dict.fromkeys(candidates):
+        if not score_path.exists():
+            continue
+        scores = pl.read_csv(score_path)
+        if {"fit_time", "score_time"} <= set(scores.columns):
+            return float(scores["fit_time"].sum() + scores["score_time"].sum())
+    for directory in (source.parent, path.parent):
+        log_path = directory / "run.log"
+        if log_path.exists():
+            matches = re.findall(
+                r":\s*([\d.]+)s total", log_path.read_text(errors="replace")
+            )
+            if matches:
+                return float(matches[-1])
+    return None
+
+
+def average_pinball_loss(df):
+    """Mean pinball loss (MW) over 5/50/95% quantiles and all horizons."""
+    hs = horizons_of(df)
+    levels = quantile_levels_of(df, hs[0])
+    chosen = [
+        q for q in levels if any(abs(q - target) < 1e-9 for target in (0.05, 0.5, 0.95))
+    ]
+    if not chosen:
+        chosen = levels
+    if not chosen:
+        return None
+    losses = []
+    for h in hs:
+        y = df[f"{h}h"].to_numpy()
+        for q in chosen:
+            losses.append(
+                mean_pinball_loss(y, df[f"pred_{h}h__q_{q}"].to_numpy(), alpha=q)
+            )
+    return float(np.mean(losses))
+
+
+pareto_records = []
+for path in paths:
+    name = path.stem.removesuffix("_cv_predictions")
+    records = {
+        "name": name,
+        "time": fit_predict_time_seconds(path),
+        "mape": 100 * results[name]["mape__average"],
+        "pinball": average_pinball_loss(frames[name]),
+    }
+    pareto_records.append(records)
+
+missing_times = [r["name"] for r in pareto_records if r["time"] is None]
+if missing_times:
+    print("warning: no fit+predict time for", ", ".join(missing_times))
+
+
+def pareto_frontier(records, metric):
+    """Points not dominated on (lower time, lower metric)."""
+    frontier, best = [], float("inf")
+    for record in sorted(records, key=lambda r: (r["time"], r[metric])):
+        if record[metric] < best:
+            frontier.append(record)
+            best = record[metric]
+    return frontier
+
+
+def pareto_figure(records, metric, title, y_title, hover_format):
+    data = [r for r in records if r["time"] is not None and r[metric] is not None]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=[r["time"] for r in data],
+            y=[r[metric] for r in data],
+            mode="markers+text",
+            text=[r["name"] for r in data],
+            textposition="top center",
+            marker={"size": 10, "color": "#1f77b4"},
+            customdata=[[r["name"]] for r in data],
+            hovertemplate=(
+                "%{customdata[0]}<br>fit + predict: %{x:,.0f} s<br>"
+                + hover_format
+                + "<extra></extra>"
+            ),
+            name="models",
+        )
+    )
+    frontier = pareto_frontier(data, metric)
+    if len(frontier) > 1:
+        fig.add_trace(
+            go.Scatter(
+                x=[r["time"] for r in frontier],
+                y=[r[metric] for r in frontier],
+                mode="lines+markers",
+                line={"color": "#d62728", "dash": "dash"},
+                marker={"size": 7, "color": "#d62728"},
+                name="Pareto frontier",
+                hoverinfo="skip",
+            )
+        )
+    fig.update_xaxes(
+        type="log",
+        title_text="Fit + predict time (s, log scale)",
+    )
+    fig.update_yaxes(title_text=y_title)
+    fig.update_layout(
+        title=title,
+        height=480,
+        margin={"t": 55, "b": 55, "l": 70, "r": 25},
+    )
+    return fig
+
+
+def write_pareto_page(path, records):
+    figures = [
+        pareto_figure(
+            records,
+            "mape",
+            "Average MAPE vs fit + predict time",
+            "Average MAPE (%, lower is better)",
+            "MAPE: %{y:.3f}%",
+        ),
+        pareto_figure(
+            records,
+            "pinball",
+            "Average pinball loss vs fit + predict time",
+            "Average pinball loss (MW, lower is better)",
+            "pinball loss: %{y:.2f} MW",
+        ),
+    ]
+    parts = "".join(
+        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=i == 0, config={"responsive": True, "displaylogo": False})}</div>'
+        for i, fig in enumerate(figures)
+    )
+    table_rows = "".join(
+        "<tr>"
+        f"<td>{escape(r['name'])}</td>"
+        f"<td>{r['time']:,.0f}</td>"
+        f"<td>{r['mape']:.3f}</td>"
+        f"<td>{r['pinball']:.2f}</td>"
+        "</tr>"
+        if r["pinball"] is not None
+        else (
+            "<tr>"
+            f"<td>{escape(r['name'])}</td>"
+            f"<td>{r['time']:,.0f}</td>"
+            f"<td>{r['mape']:.3f}</td>"
+            "<td>-</td>"
+            "</tr>"
+        )
+        for r in sorted(
+            (r for r in records if r["time"] is not None),
+            key=lambda r: r["time"],
+        )
+    )
+    page = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Pareto plots: accuracy vs fit + predict time</title>
+<style>
+body {{ font-family: sans-serif; max-width: 1100px; margin: 2em auto; padding: 0 1em; }}
+table {{ border-collapse: collapse; margin-bottom: 1.5em; }}
+th, td {{ border-bottom: 1px solid #ddd; padding: 0.4em 0.8em; text-align: right; }}
+th:first-child, td:first-child {{ text-align: left; }}
+.chart {{ width: 100%; margin-bottom: 1.2em; }}
+.note {{ color: #555; font-size: 0.9em; }}
+</style>
+</head>
+<body>
+<h1>Pareto plots: accuracy vs fit + predict time</h1>
+<p class="note">Times are summed over the 8 CV folds (fit + predict/score).
+They come from per-fold timings in the scores CSV when available, otherwise
+from the run log. Hardware and parallel load differ across runs (CPU vs GPU), so
+times are indicative rather than a controlled benchmark. The horizontal axis is
+log-scaled. The average neg-MAPE score is shown as positive MAPE (%), so lower
+is better; MAPE uses the median prediction. Pinball loss is averaged over the
+5%, 50% and 95% quantiles and all horizons; models without quantiles are omitted
+from the pinball figure. Lower is better on both axes, and the dashed line
+marks the Pareto frontier.</p>
+<table>
+<thead><tr><th>model</th><th>fit + predict (s)</th><th>MAPE (%)</th><th>pinball loss (MW)</th></tr></thead>
+<tbody>{table_rows}</tbody>
+</table>
+{parts}
+</body>
+</html>
+"""
+    path.write_text(page, "utf-8")
 
 
 def keep_metric(metric):
@@ -64,10 +269,14 @@ table_rows = "\n".join(
     )
     for metric in metric_order
 )
-table_controls = '<div class="controls" id="table-controls">' + "".join(
-    f'<label><input type="checkbox" data-col="{i}" checked> {escape(name)}</label>'
-    for i, name in enumerate(frames)
-) + "</div>"
+table_controls = (
+    '<div class="controls" id="table-controls">'
+    + "".join(
+        f'<label><input type="checkbox" data-col="{i}" checked> {escape(name)}</label>'
+        for i, name in enumerate(frames)
+    )
+    + "</div>"
+)
 table_html = f"""
 <table border="1" cellpadding="4" cellspacing="0">
 <thead><tr><th>metric</th>{"".join(f'<th data-col="{i}">{escape(n)}</th>' for i, n in enumerate(frames))}</tr></thead>
@@ -78,10 +287,12 @@ table_html = f"""
 """
 
 
-def add_model_traces(fig, df, name, h, *, row=None, col=None, showlegend=True, color=None):
+def add_model_traces(
+    fig, df, name, h, *, row=None, col=None, showlegend=True, color=None
+):
     """Add true load plus the model prediction (median line and shaded interval
     between the outermost quantiles, if any) to ``fig``."""
-    target_time = df["prediction_time"] + datetime.timedelta(hours=h)
+    target_time = (df["prediction_time"] + datetime.timedelta(hours=h)).to_list()
     hover = "%{x|%Y-%m-%d} (%{x|%A}): %{y}<extra></extra>"
 
     def add(trace):
@@ -173,9 +384,7 @@ def write_combined_page(path, h):
     for df in frames.values():
         target_time = df["prediction_time"] + datetime.timedelta(hours=h)
         xs.extend([target_time.min(), target_time.max()])
-        columns = [f"{h}h"] + [
-            c for c in df.columns if c.startswith(f"pred_{h}h")
-        ]
+        columns = [f"{h}h"] + [c for c in df.columns if c.startswith(f"pred_{h}h")]
         for c in columns:
             ys.extend([df[c].min(), df[c].max()])
     x0, x1 = min(xs).isoformat(), max(xs).isoformat()
@@ -297,15 +506,20 @@ for h in horizons_of(next(iter(frames.values()))):
     write_combined_page(plots_dir / out_name, h)
     combined_links.append(f'<li><a href="plots/{out_name}">{h}h horizon</a></li>')
 combined_section = (
-    "<h2>All models per horizon</h2>\n<ul>\n"
-    + "\n".join(combined_links)
-    + "\n</ul>"
+    "<h2>All models per horizon</h2>\n<ul>\n" + "\n".join(combined_links) + "\n</ul>"
 )
 
 calibration_link = (
     '<p><a href="calibration.html">Reliability / calibration diagrams</a></p>'
     if (args.dir / "calibration.html").exists()
     else ""
+)
+
+pareto_path = args.dir / "pareto.html"
+write_pareto_page(pareto_path, pareto_records)
+pareto_link = (
+    '<p><a href="pareto.html">Pareto plots: average MAPE and pinball loss vs '
+    "fit + predict time</a></p>"
 )
 
 table_js = """<script>
@@ -343,6 +557,7 @@ All rows across the 8 CV folds are pooled.</p>
 {table_controls}
 {table_html}
 {calibration_link}
+{pareto_link}
 <h1>Plots</h1>
 <p>True vs predicted load per model and horizon (separate pages, linked below
 to keep this page small). For quantile models the plot shows the median as a
@@ -358,3 +573,4 @@ models for a horizon with tied axes: zooming one chart zooms the others.</p>
 out = args.dir / "report.html"
 out.write_text(page, "utf-8")
 print("wrote", out)
+print("wrote", pareto_path)
