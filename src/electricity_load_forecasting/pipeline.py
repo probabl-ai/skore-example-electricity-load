@@ -377,12 +377,6 @@ def _recalibrator_cv():
     return TimeSeriesSplitter(min_train_days=365)
 
 
-def tabicl_quantiles_to_df(prediction, quantiles, mode=skrub.eval_mode()):
-    if mode == "fit":
-        return prediction
-    return pl.DataFrame(prediction, schema=[f"q_{q}" for q in quantiles])
-
-
 def limit_train_size(df, size=9000, mode=skrub.eval_mode()):
     if mode in ("fit", "fit_transform", "preview"):
         return df.tail(size)
@@ -433,14 +427,15 @@ def make_data_op(
     recalibrate : bool, default=False
         If True, wrap the quantile regressor of each horizon in a
         ``calibration.Recalibrator``, which corrects its predicted quantiles
-        based on their out-of-fold reliability (see that class). Only
-        supported for ``model == "hgb_quantile"``. The recalibrator's
-        inner CV is ``_recalibrator_cv()``.
+        based on their out-of-fold reliability (see that class). Supported for
+        ``"hgb_quantile"``, ``"tabicl"`` and ``"kumo_tabular"``. The
+        recalibrator's inner CV is ``_recalibrator_cv()``.
     """
-    if recalibrate and model != "hgb_quantile":
+    recalibratable = ("hgb_quantile", "tabicl", "kumo_tabular")
+    if recalibrate and model not in recalibratable:
         raise ValueError(
-            "recalibrate=True is only supported with "
-            f"model='hgb_quantile', got {model!r}"
+            f"recalibrate=True is only supported with {recalibratable}, "
+            f"got {model!r}"
         )
     range_start = skrub.var("start").skb.set_description(
         "The first time at which a prediction is made."
@@ -527,14 +522,19 @@ def make_data_op(
             # are not in the numpy array of features that the estimator receives
             fit_kwargs = {"split_kwargs": {"prediction_time": X["prediction_time"]}}
     elif model == "tabicl":
-        from tabicl import TabICLRegressor
+        from .tabicl import TabICLQuantileRegressor
 
-        predictor = TabICLRegressor(n_estimators=8)
-        predict_kwargs = {"output_type": "quantiles", "alphas": quantiles_to_predict}
+        predictor = TabICLQuantileRegressor(quantiles=quantiles, n_estimators=8)
+        if recalibrate:
+            predictor = Recalibrator(predictor, cv=_recalibrator_cv())
+            fit_kwargs = {"split_kwargs": {"prediction_time": X["prediction_time"]}}
     elif model == "kumo_tabular":
         from .kumotabular import KumoTabularRegressor
 
         predictor = KumoTabularRegressor(quantiles=quantiles, n_estimators=8)
+        if recalibrate:
+            predictor = Recalibrator(predictor, cv=_recalibrator_cv())
+            fit_kwargs = {"split_kwargs": {"prediction_time": X["prediction_time"]}}
     elif model == "hgb_mean":
         predictor = hgb_regressor
     else:
@@ -566,8 +566,6 @@ def make_data_op(
                 predict_kwargs=predict_kwargs,
             )
         )
-        if model == "tabicl":
-            h_pred = h_pred.skb.apply_func(tabicl_quantiles_to_df, quantiles_to_predict)
         all_pred[h] = h_pred.skb.set_name(f"pred_{h}h").skb.set_description(
             f"Predicted load {h} hours after the 'prediction_time' in X."
         )

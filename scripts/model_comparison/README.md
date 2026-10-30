@@ -2,7 +2,8 @@
 
 Scripts for running and comparing walk-forward CV predictions from several
 model families on the same folds: `hgb_mean`, `hgb_quantile`,
-`hgb_quantile_recal`, `tabicl`, `kumo_tabular`, `chronos2` and `kumo`.
+`hgb_quantile_recal`, `tabicl`, `tabicl_recal`, `kumo_tabular`,
+`kumo_tabular_recal`, `chronos2` and `kumo`.
 
 Run them from the repository root. A typical study directory is
 `results/model_comparison/<study-name>/`.
@@ -22,6 +23,10 @@ python scripts/model_comparison/cross_validate_models.py \
     --model tabicl --output_dir results/model_comparison/my_study
 python scripts/model_comparison/cross_validate_models.py \
     --model kumo_tabular --max_train_rows 0 --output_dir results/model_comparison/my_study
+python scripts/model_comparison/cross_validate_models.py \
+    --model tabicl_recal --max_train_rows 0 --output_dir results/model_comparison/my_study
+python scripts/model_comparison/cross_validate_models.py \
+    --model kumo_tabular_recal --max_train_rows 0 --output_dir results/model_comparison/my_study
 python scripts/model_comparison/cross_validate_models.py \
     --model chronos2 --device cuda --output_dir results/model_comparison/my_study
 ```
