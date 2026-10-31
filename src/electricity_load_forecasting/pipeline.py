@@ -286,7 +286,7 @@ def add_calendar_and_holidays(df, holidays_fetcher=fetch_holidays):
     fr_time = pl.col("target_time").dt.convert_time_zone("Europe/Paris")
     fr_year_min = df.select(fr_time.dt.year().min()).item()
     fr_year_max = df.select(fr_time.dt.year().max()).item()
-    holidays_fr = fetch_holidays(years=range(fr_year_min, fr_year_max + 1))
+    holidays_fr = holidays_fetcher(years=range(fr_year_min, fr_year_max + 1))
     return df.with_columns(
         fr_time.dt.hour().alias("cal_hour_of_day"),
         fr_time.dt.weekday().alias("cal_day_of_week"),
