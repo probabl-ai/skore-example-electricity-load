@@ -5,12 +5,11 @@ be published or shared again after a pipeline change.
 """
 
 import argparse
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
 import electricity_load_forecasting as elf
+
+ROOT = Path(__file__).resolve().parents[2]
 
 parser = argparse.ArgumentParser()
 parser.add_argument(

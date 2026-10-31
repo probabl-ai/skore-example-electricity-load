@@ -20,7 +20,6 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "model_comparison"))
 from compare_predictions import compute_scores
 

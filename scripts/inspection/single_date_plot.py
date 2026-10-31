@@ -1,15 +1,14 @@
 # %%
 import argparse
 import datetime
-import sys
 from pathlib import Path
 
 import plotly.graph_objects as go
 import polars as pl
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
 import electricity_load_forecasting as elf
+
+ROOT = Path(__file__).resolve().parents[2]
 
 OUTPUT_DIR = ROOT / "results" / "inspection"
 

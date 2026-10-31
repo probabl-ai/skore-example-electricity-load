@@ -20,12 +20,9 @@ model, shaded confidence intervals, and a metrics table.
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import polars as pl
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from compare_predictions import horizons_of, quantile_levels_of
 
 import electricity_load_forecasting as elf

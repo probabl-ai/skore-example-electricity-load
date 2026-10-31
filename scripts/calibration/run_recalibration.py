@@ -8,15 +8,13 @@ This writes the prediction, score, correction and inner out-of-fold files under
 import argparse
 import json
 import shutil
-import sys
 from pathlib import Path
 
 import numpy as np
 import polars as pl
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-from electricity_load_forecasting import pipeline as elf
 from recalibration_report import QUANTILES, build_report, read_config
+
+from electricity_load_forecasting import pipeline as elf
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,9 @@ Run from the repository root:
     python scripts/model_comparison/cross_validate_models.py \
         --model hgb_mean --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
+        --model hgb_mean --weather prevday \
+        --output_dir results/model_comparison/my_study
+    python scripts/model_comparison/cross_validate_models.py \
         --model hgb_quantile --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
         --model hgb_quantile_recal --max_iter 2000 \
@@ -40,6 +43,9 @@ Run from the repository root:
         --output_dir results/model_comparison/my_study
 
 Use `--reports` to also write the skrub fit/predict/single-date reports.
+Weather defaults to the safe-lead historical forecasts (`--weather prevday`):
+day1 for horizons <=18h and day2 above that. Use `--weather oracle` for the
+oracle weather files.
 
 `hgb_quantile` is `elf.make_data_op(model="hgb_quantile")`:
 one independent `HistGradientBoostingRegressor` per quantile (see
@@ -57,11 +63,9 @@ identical across models.
 """
 
 import argparse
-import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 
 HORIZONS = (1, 12, 24)
@@ -105,6 +109,12 @@ parser.add_argument(
     help="forecaster used by --model chronos2",
 )
 parser.add_argument("--chronos_model", default="amazon/chronos-2")
+parser.add_argument(
+    "--weather",
+    choices=["oracle", "prevday"],
+    default="prevday",
+    help="weather features: safe-lead historical forecasts (default) or oracle files",
+)
 parser.add_argument("--device", default=None, help="default: cuda if available")
 parser.add_argument("--dtype", default=None, help="e.g. bfloat16")
 parser.add_argument("--batch_size", type=int, default=256)
@@ -226,6 +236,8 @@ else:
     )
 
 env = elf.get_env()
+if args.weather == "prevday":
+    env = env | {"city_weather_fetcher": elf.fetch_city_weather_forecast}
 t0 = time.time()
 cv_predictions, scores = elf.cross_val_predict(pred, env)
 dt = time.time() - t0

@@ -10,14 +10,12 @@ Writes `<dir>/calibration.html`.
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from electricity_load_forecasting import diagnostics as dg
 
 IDEAL = "gray"

@@ -31,6 +31,11 @@ python scripts/model_comparison/cross_validate_models.py \
     --model chronos2 --device cuda --output_dir results/model_comparison/my_study
 ```
 
+Weather defaults to the safe-lead historical forecasts (`--weather prevday`):
+day1 for horizons <=18h and day2 above. Use `--weather oracle` for the oracle
+files. This works for the tabular, Chronos and Kumo pipelines because they all
+read `city_weather_fetcher` from the environment.
+
 Each run writes `<model>_cv_predictions.parquet` and `<model>_scores.csv`.
 Use `--tag` to keep multiple runs of the same model side by side. Add
 `--reports` to also write the skrub fit/predict/single-date reports for that

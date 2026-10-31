@@ -33,11 +33,10 @@ from pathlib import Path
 
 import polars as pl
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+import electricity_load_forecasting as elf
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "model_comparison"))
 from compare_predictions import compute_scores
-
-import electricity_load_forecasting as elf
 
 MAX_TRAIN_ROWS = {
     "hgb_mean": [2160, 8760, 17520, 26280, 0],

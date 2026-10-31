@@ -44,7 +44,7 @@ _CALENDAR_COLUMNS = (
 
 def build_covariates(
     load_mw_history,
-    city_weather_fetcher=elf.fetch_city_weather,
+    city_weather_fetcher=elf.fetch_city_weather_forecast,
     cities="all",
     temperature_only=True,
     calendar=True,
@@ -382,7 +382,7 @@ def make_chronos_data_op(
         "load_mw_history_fetcher", elf.fetch_load_mw_history, becomes_default=True
     )
     city_weather_fetcher = skrub.var(
-        "city_weather_fetcher", elf.fetch_city_weather, becomes_default=True
+        "city_weather_fetcher", elf.fetch_city_weather_forecast, becomes_default=True
     )
     prediction_time = skrub.deferred(elf.time_range)(range_start, range_end)
     load_mw_history = (

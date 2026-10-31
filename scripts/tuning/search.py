@@ -11,10 +11,8 @@ persistent ``optuna.db`` SQLite database that can be reopened with
 import argparse
 import json
 import pickle
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 
 parser = argparse.ArgumentParser()

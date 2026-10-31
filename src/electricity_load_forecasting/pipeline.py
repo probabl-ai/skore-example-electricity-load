@@ -224,8 +224,20 @@ def add_lagged_features(target_time, load_mw_history, horizon):
     )
 
 
-def fetch_city_weather(city):
+def fetch_city_weather(city, horizon=None):
+    """Load oracle weather for a city (horizon is accepted and ignored)."""
     return pl.scan_parquet(data_dir() / f"weather_{city}.parquet")
+
+
+def fetch_city_weather_forecast(city, horizon=None):
+    """Load historical temperature forecasts with a safe lead for the horizon.
+
+    For horizons up to 18h we use the 24h-lead forecast; above that (including
+    callers that do not specify a horizon) we use the 48h-lead forecast. This
+    leaves at least a 6h margin for GFS model latency.
+    """
+    lead = 1 if horizon is not None and horizon <= 18 else 2
+    return pl.scan_parquet(data_dir() / f"weather_prevday{lead}_{city}.parquet")
 
 
 def add_weather(
@@ -233,13 +245,11 @@ def add_weather(
     horizon,
     city_names="all",
     temperature_only=False,
-    city_weather_fetcher=fetch_city_weather,
+    city_weather_fetcher=fetch_city_weather_forecast,
 ):
     """Add weather information for the required cities."""
-    # NOTE: here ideally we should retrieve the exact weather forecast
-    # corresponding to the horizon. But we do not have it available in the
-    # historical data. We just take the only forecast we have.
-    del horizon
+    # The default fetcher ignores horizon; the historical-forecast fetcher uses
+    # it to select a lead time that is available at prediction time.
     if isinstance(city_names, str):
         assert city_names == "all"
         city_names = _ALL_CITIES
@@ -257,7 +267,7 @@ def add_weather(
 
     for city in city_names:
         with_weather = with_weather.join(
-            city_weather_fetcher(city)
+            city_weather_fetcher(city, horizon=horizon)
             .with_columns(pl.col("time").dt.cast_time_unit("us"))
             .select(
                 (pl.col("time"), cs.matches(".*temperature.*"))
@@ -450,10 +460,10 @@ def make_data_op(
         "See signature of electricity_load_forecasting.fetch_load_mw_history."
     )
     city_weather_fetcher = skrub.var(
-        "city_weather_fetcher", fetch_city_weather, becomes_default=True
+        "city_weather_fetcher", fetch_city_weather_forecast, becomes_default=True
     ).skb.set_description(
         "Function that loads the weather forecast for a city. "
-        "See signature of electricity_load_forecasting.fetch_city_weather."
+        "See signature of electricity_load_forecasting.fetch_city_weather_forecast."
     )
     holidays_fetcher = skrub.var(
         "holidays_fetcher", fetch_holidays, becomes_default=True

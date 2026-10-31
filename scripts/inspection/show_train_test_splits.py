@@ -1,13 +1,11 @@
 import datetime
-import sys
 from pathlib import Path
 
 import plotly.graph_objects as go
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
-
 import electricity_load_forecasting as elf
+
+ROOT = Path(__file__).resolve().parents[2]
 
 pred = elf.make_data_op(horizons=(1,), model="hgb_mean")
 env = elf.get_env()

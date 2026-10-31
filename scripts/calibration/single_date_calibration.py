@@ -15,7 +15,6 @@ Writes ``results/calibration/single_date_calibration.html``.
 import argparse
 import datetime
 import json
-import sys
 import time
 from pathlib import Path
 
@@ -25,10 +24,9 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
-
 import electricity_load_forecasting as elf
+
+ROOT = Path(__file__).resolve().parents[2]
 
 QUANTILES = (0.05, 0.5, 0.95)
 Q_LOW, Q_HIGH = QUANTILES[0], QUANTILES[-1]

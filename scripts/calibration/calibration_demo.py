@@ -10,7 +10,6 @@ Writes ``results/calibration/calibration_demo.html``: a self-contained page
 
 import datetime
 import html
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -19,9 +18,6 @@ import polars as pl
 from plotly.subplots import make_subplots
 from sklearn.metrics import mean_absolute_percentage_error, mean_pinball_loss
 from sklearn.model_selection import TimeSeriesSplit
-
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
 
 from electricity_load_forecasting import metrics
 from electricity_load_forecasting.calibration import Recalibrator
@@ -32,6 +28,8 @@ from electricity_load_forecasting.diagnostics import (
     panel_range,
 )
 from electricity_load_forecasting.quantile_regressor import HGBQuantileRegressor
+
+ROOT = Path(__file__).resolve().parents[2]
 
 QUANTILES = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
 Q_LOW, Q_HIGH = 0.05, 0.95

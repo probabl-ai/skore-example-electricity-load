@@ -27,13 +27,11 @@ The functions here are also imported by `build_cv_report.py` and
 
 import argparse
 import re
-import sys
 from pathlib import Path
 
 import polars as pl
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from electricity_load_forecasting.metrics import pinball
 
 

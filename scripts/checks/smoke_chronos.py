@@ -16,13 +16,10 @@ prediction times starting 2025-01-01, with and without covariates.
 
 import argparse
 import datetime
-import sys
-from pathlib import Path
 
 import numpy as np
 import polars as pl
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 from electricity_load_forecasting import chronos as cf
 

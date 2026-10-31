@@ -12,13 +12,10 @@ forecasts `--n_rows` prediction times.
 
 import argparse
 import datetime
-import sys
-from pathlib import Path
 
 import numpy as np
 import polars as pl
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import electricity_load_forecasting as elf
 from electricity_load_forecasting import kumo as kf
 
