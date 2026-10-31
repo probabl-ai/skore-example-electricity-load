@@ -184,7 +184,10 @@ def check_scoring():
         )
         assert 0 < mape < 0.2
         if quantiles is not None:
-            assert "neg_mape__1h__q_0.5" in score
+            assert "neg_mape__1h" in score
+            assert not any(
+                k.startswith("neg_mape__") and k.endswith("__q_0.5") for k in score
+            )
             assert any(k.startswith("d2_pinball_score__average__q_0.95") for k in score)
     # same splitter as the baseline
     first = next(iter(make_op().skb.iter_cv_splits(environment=env)))

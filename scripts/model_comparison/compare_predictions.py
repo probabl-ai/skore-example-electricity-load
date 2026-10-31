@@ -14,9 +14,10 @@ Each input file must have the layout produced by
 prediction columns per horizon (`"pred_{h}h"` for a point forecast, or
 `"pred_{h}h__q_{alpha}"` per quantile), and `split` (CV fold index).
 
-MAE and MAPE always use the median quantile (or the point forecast, if there
-is no quantile). Pinball (d2) is only reported for models with quantile
-predictions. All rows across folds are pooled before computing metrics
+MAE and MAPE use the 0.5 quantile (or the point forecast, if there is no
+quantile); they are omitted if a quantile model has no 0.5 level. Pinball (d2)
+is only reported for models with quantile predictions. All rows across folds
+are pooled before computing metrics
 (a walk-forward CV acts as one big held-out set, split-by-split for fitting
 but not for scoring).
 
@@ -112,10 +113,11 @@ def compute_scores(df):
             for q in levels
         )
         scores |= pinball(y_true, pred_wide)
-        median = min(levels, key=lambda q: abs(q - 0.5))
-        y_pred_point = df.select(
-            [pl.col(f"pred_{h}h__q_{median}").alias(f"{h}h") for h in horizons]
-        )
+        y_pred_point = None
+        if 0.5 in levels:
+            y_pred_point = df.select(
+                [pl.col(f"pred_{h}h__q_0.5").alias(f"{h}h") for h in horizons]
+            )
         # coverage/width for each symmetric pair of quantiles around 0.5
         # (e.g. 0.05/0.95 -> nominal 90% interval)
         pairs = {
@@ -128,8 +130,9 @@ def compute_scores(df):
             scores |= interval_metrics(y_true, pred_wide, horizons, lo, hi)
     else:
         y_pred_point = df.select([f"pred_{h}h" for h in horizons])
-    scores |= mae(y_true, y_pred_point)
-    scores |= mape(y_true, y_pred_point)
+    if y_pred_point is not None:
+        scores |= mae(y_true, y_pred_point)
+        scores |= mape(y_true, y_pred_point)
     return scores
 
 

@@ -2,27 +2,30 @@ from sklearn.metrics import d2_pinball_score, mean_absolute_percentage_error
 
 
 def split_by_quantile(pred):
+    """Split wide quantile predictions into one DataFrame per quantile level."""
     quantile_cols = {}
     for c in pred.columns:
         quantile_cols.setdefault(c.split("__")[1], []).append(c)
     return {
-        q: pred.select(cols).rename(lambda c: c.split("__")[0])
+        q: pred.select(cols).rename(
+            lambda c: c.split("__")[0].removeprefix("pred_")
+        )
         for q, cols in quantile_cols.items()
     }
 
 
 def neg_mape(y_true, y_pred, quantile_regression=False):
+    """Negative MAPE.
+
+    For quantile models only the median MAPE is reported: per-quantile MAPE is
+    not a proper quantile score, so quantile accuracy is handled by ``pinball``.
+    """
     if quantile_regression:
         quantile_predictions = split_by_quantile(y_pred)
-        scores = {}
-        for q, q_pred in quantile_predictions.items():
-            q_neg_mape = neg_mape(y_true, q_pred, quantile_regression=False)
-            scores.update({f"{k}__{q}": v for k, v in q_neg_mape.items()})
-            if q == "q_0.5":
-                # Pick the median if available for comparison with non-quantile
-                # models
-                scores.update(q_neg_mape)
-        return scores
+        if "q_0.5" not in quantile_predictions:
+            return {}
+        q_pred = quantile_predictions["q_0.5"].select(y_true.columns)
+        return neg_mape(y_true, q_pred, quantile_regression=False)
     average = mean_absolute_percentage_error(y_true, y_pred)
     detail = mean_absolute_percentage_error(y_true, y_pred, multioutput="raw_values")
     return {"neg_mape__average": -average} | {
@@ -38,6 +41,7 @@ def pinball(y_true, y_pred):
     quantile_predictions = split_by_quantile(y_pred)
     scores = {}
     for q, q_pred in quantile_predictions.items():
+        q_pred = q_pred.select(y_true.columns)
         alpha = float(q.removeprefix("q_"))
         scores[f"d2_pinball_score__average__{q}"] = d2_pinball_score(
             y_true, q_pred, alpha=alpha
