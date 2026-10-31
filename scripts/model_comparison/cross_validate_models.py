@@ -16,7 +16,7 @@ Run from the repository root:
     python scripts/model_comparison/cross_validate_models.py \
         --model hgb_mean --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
-        --model hgb_mean --weather prevday \
+        --model hgb_mean --weather forecast \
         --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
         --model hgb_quantile --output_dir results/model_comparison/my_study
@@ -43,7 +43,7 @@ Run from the repository root:
         --output_dir results/model_comparison/my_study
 
 Use `--reports` to also write the skrub fit/predict/single-date reports.
-Weather defaults to the safe-lead historical forecasts (`--weather prevday`):
+Weather defaults to the safe-lead historical forecasts (`--weather forecast`):
 day1 for horizons <=18h and day2 above that. Use `--weather oracle` for the
 oracle weather files.
 
@@ -111,8 +111,8 @@ parser.add_argument(
 parser.add_argument("--chronos_model", default="amazon/chronos-2")
 parser.add_argument(
     "--weather",
-    choices=["oracle", "prevday"],
-    default="prevday",
+    choices=["oracle", "forecast"],
+    default="forecast",
     help="weather features: safe-lead historical forecasts (default) or oracle files",
 )
 parser.add_argument("--device", default=None, help="default: cuda if available")
@@ -236,7 +236,7 @@ else:
     )
 
 env = elf.get_env()
-if args.weather == "prevday":
+if args.weather == "forecast":
     env = env | {"city_weather_fetcher": elf.fetch_city_weather_forecast}
 t0 = time.time()
 cv_predictions, scores = elf.cross_val_predict(pred, env)

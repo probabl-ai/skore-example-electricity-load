@@ -4,7 +4,7 @@ The source is the Open-Meteo Previous Runs API. We fetch GFS 2 m temperature at
 the 24h and 48h lead times (``temperature_2m_previous_day1/2``), available from
 March 2021. JMA GSM fills the GFS archive gaps.
 
-Files are written as ``datasets/weather_prevday<lead>_<city>.parquet`` with the
+Files are written as ``datasets/weather_forecast_day<lead>_<city>.parquet`` with the
 same ``time, temperature_2m`` layout as the oracle weather files. The values
 are forecasts issued ``lead`` days before the target time, not oracle
 observations.
@@ -87,7 +87,7 @@ def main():
 
     for lead in args.leads:
         for city in CITIES:
-            path = DATASETS / f"weather_prevday{lead}_{city['name']}.parquet"
+            path = DATASETS / f"weather_forecast_day{lead}_{city['name']}.parquet"
             if path.exists() and not args.force:
                 print(f"{path.name} already exists")
                 continue

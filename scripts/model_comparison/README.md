@@ -31,7 +31,7 @@ python scripts/model_comparison/cross_validate_models.py \
     --model chronos2 --device cuda --output_dir results/model_comparison/my_study
 ```
 
-Weather defaults to the safe-lead historical forecasts (`--weather prevday`):
+Weather defaults to the safe-lead historical forecasts (`--weather forecast`):
 day1 for horizons <=18h and day2 above. Use `--weather oracle` for the oracle
 files. This works for the tabular, Chronos and Kumo pipelines because they all
 read `city_weather_fetcher` from the environment.

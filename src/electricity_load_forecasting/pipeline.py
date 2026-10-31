@@ -237,7 +237,7 @@ def fetch_city_weather_forecast(city, horizon=None):
     leaves at least a 6h margin for GFS model latency.
     """
     lead = 1 if horizon is not None and horizon <= 18 else 2
-    return pl.scan_parquet(data_dir() / f"weather_prevday{lead}_{city}.parquet")
+    return pl.scan_parquet(data_dir() / f"weather_forecast_day{lead}_{city}.parquet")
 
 
 def add_weather(

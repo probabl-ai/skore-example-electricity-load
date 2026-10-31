@@ -18,7 +18,7 @@ The `weather_<city>.parquet` files are the original Open-Meteo Historical
 Forecast data (all variables, 2021-01-01 to 2025-05-31), fetched with the
 `fetch_weather_data.py` script from the EuroSciPy 2025 example.
 
-`weather_prevday1_<city>.parquet` and `weather_prevday2_<city>.parquet` contain
+`weather_forecast_day1_<city>.parquet` and `weather_forecast_day2_<city>.parquet` contain
 genuine 24h- and 48h-ahead temperature forecasts for the same cities and time
 grid. They use the Open-Meteo Previous Runs API, GFS model, variables
 `temperature_2m_previous_day1/2` (the value predicted 24h/48h before valid
@@ -38,7 +38,7 @@ python scripts/inspection/plot_weather_forecasts.py
 ```
 
 The comparison report is written to
-`results/weather_forecast/oracle_vs_prevday.html`.
+`results/weather_forecast/oracle_vs_forecast_day1.html`.
 
 Open-Meteo data is licensed under CC BY 4.0. The free API tier is for
 non-commercial use; commercial use requires an Open-Meteo licence.

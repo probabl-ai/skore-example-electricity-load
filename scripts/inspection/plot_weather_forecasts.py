@@ -1,9 +1,9 @@
 """Compare the oracle weather data with 24h-ahead historical forecasts.
 
 Reads ``datasets/weather_<city>.parquet`` (oracle) and
-``datasets/weather_prevday1_<city>.parquet`` (GFS ``previous_day1``, with JMA
+``datasets/weather_forecast_day1_<city>.parquet`` (GFS ``previous_day1``, with JMA
 GSM fallback where the GFS archive has gaps). Writes
-``results/weather_forecast/oracle_vs_prevday.html``.
+``results/weather_forecast/oracle_vs_forecast_day1.html``.
 
     python scripts/inspection/plot_weather_forecasts.py
 """
@@ -18,7 +18,7 @@ from plotly.subplots import make_subplots
 
 ROOT = Path(__file__).resolve().parents[2]
 DATASETS = ROOT / "datasets"
-OUTPUT = ROOT / "results" / "weather_forecast" / "oracle_vs_prevday.html"
+OUTPUT = ROOT / "results" / "weather_forecast" / "oracle_vs_forecast_day1.html"
 
 CITIES = [
     "paris", "lyon", "marseille", "toulouse", "lille",
@@ -37,7 +37,7 @@ def load(city):
         .with_columns(pl.col("time").dt.cast_time_unit("us"))
     )
     prev = (
-        pl.read_parquet(DATASETS / f"weather_prevday1_{city}.parquet")
+        pl.read_parquet(DATASETS / f"weather_forecast_day1_{city}.parquet")
         .select("time", pl.col("temperature_2m").alias("prev"))
         .with_columns(pl.col("time").dt.cast_time_unit("us"))
     )
