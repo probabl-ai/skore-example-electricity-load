@@ -11,6 +11,8 @@ SKIP_HTML = re.compile(r"^node_.*\.html$")
 SECTION_TITLES = {
     "calibration": "Calibration",
     "model-comparison": "Model comparison",
+    "model-comparison-forecast": "Model comparison (forecast weather)",
+    "weather-impact": "Weather data impact",
     "retraining-frequency": "Retraining frequency",
     "history-length": "Training-history length",
     "tuning": "Hyperparameter tuning",
@@ -156,6 +158,11 @@ def report_files():
     return sorted(files, key=lambda p: (-p.stat().st_mtime, str(p)))
 
 
+def is_skrub_report(path, title):
+    relative = path.relative_to(DOCS).as_posix().lower()
+    return title == "DataOp report" or "skrub" in relative
+
+
 def build_index():
     groups = {}
     for path in report_files():
@@ -174,9 +181,14 @@ def build_index():
                 str(relative.parent) if path.name == "index.html" else path.stem
             )
             stat = path.stat()
+            target = (
+                ' target="_blank" rel="noopener"'
+                if is_skrub_report(path, title)
+                else ""
+            )
             rows.append(
                 "<tr>"
-                f'<td><a href="{quote(relative.as_posix())}" target="_blank" rel="noopener">{html.escape(title)}</a>'
+                f'<td><a href="{quote(relative.as_posix())}"{target}>{html.escape(title)}</a>'
                 f'<div class="path">{html.escape(relative.as_posix())}</div></td>'
                 f"<td>{datetime.fromtimestamp(stat.st_mtime):%Y-%m-%d %H:%M}</td>"
                 f"<td>{human_size(stat.st_size)}</td>"

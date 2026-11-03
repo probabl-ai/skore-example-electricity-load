@@ -3,7 +3,7 @@
 Scripts for running and comparing walk-forward CV predictions from several
 model families on the same folds: `hgb_mean`, `hgb_quantile`,
 `hgb_quantile_recal`, `tabicl`, `tabicl_recal`, `kumo_tabular`,
-`kumo_tabular_recal`, `chronos2` and `kumo`.
+`kumo_tabular_recal`, `chronos2` and `kumo_forecast`.
 
 Run them from the repository root. A typical study directory is
 `results/model_comparison/<study-name>/`.

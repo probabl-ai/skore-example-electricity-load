@@ -1,7 +1,7 @@
 """
 Walk-forward cross-validation for one pipeline (hgb_mean, hgb_quantile,
 hgb_quantile_recal, tabicl, tabicl_recal, kumo_tabular, kumo_tabular_recal,
-chronos2 or kumo), using the same strategy as
+chronos2 or kumo_forecast), using the same strategy as
 `cross_validate.py` (`elf.cross_val_predict`, no skore): iterate over all
 `electricity_load_forecasting.splitter.TimeSeriesSplitter` folds, fit on train,
 predict and score on test, concatenate across folds.
@@ -39,7 +39,7 @@ Run from the repository root:
         --model chronos2 --device cuda \
         --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
-        --model kumo --device cuda \
+        --model kumo_forecast --device cuda \
         --output_dir results/model_comparison/my_study
 
 Use `--reports` to also write the skrub fit/predict/single-date reports.
@@ -83,7 +83,7 @@ parser.add_argument(
         "kumo_tabular",
         "kumo_tabular_recal",
         "chronos2",
-        "kumo",
+        "kumo_forecast",
     ],
     required=True,
 )
@@ -216,7 +216,7 @@ elif args.model == "chronos2":
         calendar=not args.no_calendar,
         verbose=True,
     )
-else:
+elif args.model == "kumo_forecast":
     from electricity_load_forecasting import kumo as kf
 
     forecaster = kf.KumoForecastForecaster(

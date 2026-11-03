@@ -27,7 +27,14 @@ from pathlib import Path
 import numpy as np
 import plotly.graph_objects as go
 import polars as pl
-from compare_predictions import compare, horizons_of, quantile_levels_of
+from compare_predictions import (
+    compare,
+    compute_scores,
+    horizons_of,
+    quantile_levels_of,
+)
+from plotly.subplots import make_subplots
+from scipy.stats import t as student_t
 from sklearn.metrics import mean_pinball_loss
 
 PRED_COLOR = "#1f77b4"
@@ -94,14 +101,297 @@ def average_pinball_loss(df):
     return float(np.mean(losses))
 
 
+fold_scores = {}
+for name, df in frames.items():
+    splits = sorted(df["split"].unique().to_list())
+    per_fold = [compute_scores(df.filter(pl.col("split") == split)) for split in splits]
+    fold_scores[name] = {
+        key: np.array([fold[key] for fold in per_fold], dtype=float)
+        for key in per_fold[0]
+    }
+
+fold_pinball = {}
+for name, df in frames.items():
+    splits = sorted(df["split"].unique().to_list())
+    values = [
+        average_pinball_loss(df.filter(pl.col("split") == split))
+        for split in splits
+    ]
+    fold_pinball[name] = (
+        None if any(value is None for value in values) else np.array(values)
+    )
+
+BAR_METRICS = [
+    ("mae__{h}h", "MAE (MW)", 1.0),
+    ("mape__{h}h", "MAPE (%)", 100.0),
+    ("d2_pinball_score__{h}h__q_0.5", "median pinball-d2", 1.0),
+    ("d2_pinball_score__{h}h__q_0.05", "q0.05 pinball-d2", 1.0),
+    ("d2_pinball_score__{h}h__q_0.95", "q0.95 pinball-d2", 1.0),
+    ("coverage_90__{h}h", "90% coverage", 1.0),
+    ("width_90__{h}h", "90% width (MW)", 1.0),
+]
+DIFF_METRICS = [
+    metric for metric in BAR_METRICS if not metric[0].startswith("coverage_90__")
+]
+HORIZON_COLORS = {1: "#1f77b4", 12: "#ff7f0e", 24: "#2ca02c"}
+
+
+def baseline_name(template):
+    if template.startswith(("mae__", "mape__")):
+        candidates = [
+            name
+            for name in frames
+            if name.startswith("hgb_mean") and "fast" not in name
+        ]
+    else:
+        candidates = [
+            name
+            for name in frames
+            if name.startswith("hgb_quantile_q7") and "recal" not in name
+        ]
+    if candidates:
+        return sorted(candidates)[0]
+    prefix = "hgb_mean" if template.startswith(("mae__", "mape__")) else "hgb_quantile"
+    fallback = sorted(name for name in frames if name.startswith(prefix))
+    return fallback[0] if fallback else None
+
+
+def paired_ci(values):
+    if len(values) < 2:
+        return 0.0
+    standard_error = float(np.std(values, ddof=1)) / np.sqrt(len(values))
+    return float(student_t.ppf(0.975, len(values) - 1) * standard_error)
+
+
+def bars_figure(fold_scores):
+    horizons = horizons_of(next(iter(frames.values())))
+    n_rows = (len(BAR_METRICS) + 1) // 2
+    fig = make_subplots(
+        rows=n_rows,
+        cols=2,
+        subplot_titles=[label for _, label, _ in BAR_METRICS],
+        horizontal_spacing=0.14,
+        vertical_spacing=0.08,
+    )
+    for i, (template, label, scale) in enumerate(BAR_METRICS):
+        row, col = divmod(i, 2)
+        row, col = row + 1, col + 1
+        data = {}
+        for name in frames:
+            keys = [template.format(h=h) for h in horizons]
+            if not all(key in fold_scores[name] for key in keys):
+                continue
+            data[name] = {
+                h: scale * float(np.mean(fold_scores[name][template.format(h=h)]))
+                for h in horizons
+            }
+        models = sorted(
+            data,
+            key=lambda name: float(np.mean(list(data[name].values()))),
+        )
+        for h in horizons:
+            fig.add_trace(
+                go.Bar(
+                    x=[data[name][h] for name in models],
+                    y=models,
+                    orientation="h",
+                    marker_color=HORIZON_COLORS.get(h, PRED_COLOR),
+                    name=f"{h}h",
+                    showlegend=i == 0,
+                    hovertemplate=(
+                        "%{y}<br>"
+                        + f"{h}h " + label
+                        + ": %{x:.3g}<extra></extra>"
+                    ),
+                ),
+                row=row,
+                col=col,
+            )
+        if template.startswith("coverage_90__"):
+            fig.add_vline(
+                x=0.9,
+                line={"color": "gray", "dash": "dash"},
+                annotation_text="90%",
+                annotation_position="top",
+                row=row,
+                col=col,
+            )
+        fig.update_yaxes(autorange="reversed", row=row, col=col)
+        fig.update_xaxes(title_text=label, row=row, col=col)
+    fig.update_layout(
+        height=550 * n_rows,
+        barmode="group",
+        title="Absolute metrics by horizon (mean across folds)",
+        margin={"t": 55, "b": 40, "l": 100, "r": 25},
+    )
+    return fig
+
+
+def differences_figure(fold_scores):
+    horizons = horizons_of(next(iter(frames.values())))
+    n_rows = (len(DIFF_METRICS) + 1) // 2
+    fig = make_subplots(
+        rows=n_rows,
+        cols=2,
+        subplot_titles=[label for _, label, _ in DIFF_METRICS],
+        horizontal_spacing=0.14,
+        vertical_spacing=0.08,
+    )
+    for i, (template, label, scale) in enumerate(DIFF_METRICS):
+        row, col = divmod(i, 2)
+        row, col = row + 1, col + 1
+        baseline = baseline_name(template)
+        if baseline is None:
+            continue
+        data = {}
+        for name in frames:
+            if name == baseline:
+                continue
+            keys = [template.format(h=h) for h in horizons]
+            if not all(key in fold_scores[name] for key in keys):
+                continue
+            if not all(key in fold_scores[baseline] for key in keys):
+                continue
+            diffs = {
+                h: scale
+                * (fold_scores[name][template.format(h=h)]
+                   - fold_scores[baseline][template.format(h=h)])
+                for h in horizons
+            }
+            data[name] = {
+                "mean": {h: float(np.mean(v)) for h, v in diffs.items()},
+                "ci": {h: paired_ci(v) for h, v in diffs.items()},
+            }
+        models = sorted(
+            data,
+            key=lambda name: float(np.mean(list(data[name]["mean"].values()))),
+        )
+        for h in horizons:
+            fig.add_trace(
+                go.Bar(
+                    x=[data[name]["mean"][h] for name in models],
+                    y=models,
+                    orientation="h",
+                    error_x={
+                        "type": "data",
+                        "array": [data[name]["ci"][h] for name in models],
+                        "color": "#333333",
+                        "thickness": 1.5,
+                        "width": 4,
+                    },
+                    marker_color=HORIZON_COLORS.get(h, PRED_COLOR),
+                    name=f"{h}h",
+                    showlegend=i == 0,
+                    hovertemplate=(
+                        "%{y}<br>"
+                        + f"{h}h " + label + " difference: %{x:+.3g}"
+                        + "<extra></extra>"
+                    ),
+                ),
+                row=row,
+                col=col,
+            )
+        fig.add_vline(
+            x=0,
+            line={"color": "gray", "dash": "dash"},
+            row=row,
+            col=col,
+        )
+        fig.update_yaxes(autorange="reversed", row=row, col=col)
+        fig.update_xaxes(title_text=f"{label} difference", row=row, col=col)
+    fig.update_layout(
+        height=550 * n_rows,
+        barmode="group",
+        title="Paired difference vs baseline (mean ± 95% CI)",
+        margin={"t": 55, "b": 40, "l": 100, "r": 25},
+    )
+    return fig
+
+def coverage_width_figure(fold_scores):
+    horizons = horizons_of(next(iter(frames.values())))
+    data = {}
+    all_coverage = []
+    for h in horizons:
+        points = []
+        for name in frames:
+            coverage = fold_scores[name].get(f"coverage_90__{h}h")
+            width = fold_scores[name].get(f"width_90__{h}h")
+            if coverage is None or width is None:
+                continue
+            x = float(np.mean(coverage))
+            y = float(np.mean(width))
+            points.append((name, x, y))
+            all_coverage.append(x)
+        data[h] = points
+
+    fig = make_subplots(
+        rows=len(horizons),
+        cols=1,
+        subplot_titles=[f"{h}h horizon" for h in horizons],
+        vertical_spacing=0.09,
+    )
+    for row, h in enumerate(horizons, start=1):
+        points = data[h]
+        fig.add_trace(
+            go.Scatter(
+                x=[point[1] for point in points],
+                y=[point[2] for point in points],
+                mode="markers+text",
+                text=[point[0] for point in points],
+                textposition="top center",
+                textfont={"size": 11},
+                cliponaxis=False,
+                marker={"size": 10, "color": HORIZON_COLORS.get(h, PRED_COLOR)},
+                customdata=[[point[0], h] for point in points],
+                hovertemplate=(
+                    "%{customdata[0]} (%{customdata[1]}h)"
+                    "<br>coverage: %{x:.3f}"
+                    "<br>width: %{y:,.0f} MW<extra></extra>"
+                ),
+                showlegend=False,
+            ),
+            row=row,
+            col=1,
+        )
+        fig.add_vline(
+            x=0.9,
+            line={"color": "gray", "dash": "dash"},
+            annotation_text="90%",
+            annotation_position="top",
+            row=row,
+            col=1,
+        )
+    fig.update_xaxes(
+        title_text="90% interval coverage",
+        range=[min(all_coverage) - 0.02 if all_coverage else 0.7, 1.0],
+    )
+    fig.update_yaxes(title_text="90% interval width (MW)")
+    fig.update_layout(
+        height=1200,
+        title="Coverage vs interval width (fold mean per horizon)",
+        font={"size": 13},
+        margin={"t": 60, "b": 65, "l": 80, "r": 40},
+    )
+    return fig
+
 pareto_records = []
 for path in paths:
     name = path.stem.removesuffix("_cv_predictions")
+    mape_values = 100 * fold_scores[name]["mape__average"]
+    pinball_values = fold_pinball[name]
     records = {
         "name": name,
         "time": fit_predict_time_seconds(path),
-        "mape": 100 * results[name]["mape__average"],
-        "pinball": average_pinball_loss(frames[name]),
+        "mape": float(np.mean(mape_values)),
+        "mape_std": float(np.std(mape_values, ddof=1)),
+        "pinball": (
+            None if pinball_values is None else float(np.mean(pinball_values))
+        ),
+        "pinball_std": (
+            None if pinball_values is None else float(np.std(pinball_values, ddof=1))
+        ),
+        "mape_values": mape_values,
+        "pinball_values": pinball_values,
     }
     pareto_records.append(records)
 
@@ -130,6 +420,8 @@ def pareto_figure(records, metric, title, y_title, hover_format):
             mode="markers+text",
             text=[r["name"] for r in data],
             textposition="top center",
+            textfont={"size": 12},
+            cliponaxis=False,
             marker={"size": 10, "color": "#1f77b4"},
             customdata=[[r["name"]] for r in data],
             hovertemplate=(
@@ -161,12 +453,115 @@ def pareto_figure(records, metric, title, y_title, hover_format):
     fig.update_layout(
         title=title,
         height=480,
-        margin={"t": 55, "b": 55, "l": 70, "r": 25},
+        margin={"t": 85, "b": 65, "l": 80, "r": 120},
+    )
+    return fig
+
+
+def pareto_difference_figure(records, metric, baseline, title, metric_label):
+    baseline_record = next((r for r in records if r["name"] == baseline), None)
+    if baseline_record is None:
+        return None
+    baseline_values = baseline_record[f"{metric}_values"]
+    if baseline_values is None:
+        return None
+    data = []
+    for r in records:
+        if r["time"] is None:
+            continue
+        values = r[f"{metric}_values"]
+        if values is None:
+            continue
+        diffs = values - baseline_values
+        data.append(
+            {
+                "name": r["name"],
+                "time": r["time"],
+                "diff": float(np.mean(diffs)),
+                "ci": paired_ci(diffs),
+                "baseline": r["name"] == baseline,
+            }
+        )
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=[r["time"] for r in data],
+            y=[r["diff"] for r in data],
+            mode="markers+text",
+            text=[
+                f"{r['name']} (baseline)" if r["baseline"] else r["name"]
+                for r in data
+            ],
+            textposition="top center",
+            textfont={"size": 12},
+            cliponaxis=False,
+            marker={
+                "size": [11 if r["baseline"] else 10 for r in data],
+                "color": ["#777777" if r["baseline"] else "#1f77b4" for r in data],
+                "symbol": ["diamond" if r["baseline"] else "circle" for r in data],
+            },
+            customdata=[[r["name"], r["ci"]] for r in data],
+            error_y={
+                "type": "data",
+                "array": [r["ci"] for r in data],
+                "color": "#333333",
+                "thickness": 1.5,
+                "width": 4,
+            },
+            hovertemplate=(
+                "%{customdata[0]}<br>fit + predict: %{x:,.0f} s<br>"
+                + metric_label
+                + " difference: %{y:+.3g} ± %{customdata[1]:.3g}"
+                + "<extra></extra>"
+            ),
+            name="models",
+        )
+    )
+    frontier = pareto_frontier(data, "diff")
+    if len(frontier) > 1:
+        fig.add_trace(
+            go.Scatter(
+                x=[r["time"] for r in frontier],
+                y=[r["diff"] for r in frontier],
+                mode="lines+markers",
+                line={"color": "#d62728", "dash": "dash"},
+                marker={"size": 7, "color": "#d62728"},
+                name="Pareto frontier",
+                hoverinfo="skip",
+            )
+        )
+    fig.update_xaxes(type="log", title_text="Fit + predict time (s, log scale)")
+    fig.update_yaxes(
+        title_text=f"Δ {metric_label} vs {baseline} (lower is better)"
+    )
+    fig.update_layout(
+        title=title,
+        height=480,
+        margin={"t": 85, "b": 65, "l": 80, "r": 120},
     )
     return fig
 
 
 def write_pareto_page(path, records):
+    mape_baseline = baseline_name("mae__{h}h")
+    pinball_baseline = baseline_name("d2_pinball_score__{h}h__q_0.5")
+    difference_figures = [
+        pareto_difference_figure(
+            records,
+            "mape",
+            mape_baseline,
+            "MAPE difference vs fit + predict time",
+            "MAPE (%)",
+        ),
+        pareto_difference_figure(
+            records,
+            "pinball",
+            pinball_baseline,
+            "Pinball loss difference vs fit + predict time",
+            "pinball loss (MW)",
+        ),
+    ]
+    difference_figures = [fig for fig in difference_figures if fig is not None]
     figures = [
         pareto_figure(
             records,
@@ -183,8 +578,12 @@ def write_pareto_page(path, records):
             "pinball loss: %{y:.2f} MW",
         ),
     ]
-    parts = "".join(
+    difference_parts = "".join(
         f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=i == 0, config={"responsive": True, "displaylogo": False})}</div>'
+        for i, fig in enumerate(difference_figures)
+    )
+    absolute_parts = "".join(
+        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=not difference_figures and i == 0, config={"responsive": True, "displaylogo": False})}</div>'
         for i, fig in enumerate(figures)
     )
     table_rows = "".join(
@@ -228,21 +627,30 @@ th:first-child, td:first-child {{ text-align: left; }}
 They come from per-fold timings in the scores CSV when available, otherwise
 from the run log. Hardware and parallel load differ across runs (CPU vs GPU), so
 times are indicative rather than a controlled benchmark. The horizontal axis is
-log-scaled. The average neg-MAPE score is shown as positive MAPE (%), so lower
-is better; MAPE uses the median prediction. Pinball loss is averaged over the
+log-scaled. MAPE uses the median prediction. Pinball loss is averaged over the
 5%, 50% and 95% quantiles and all horizons; models without quantiles are omitted
-from the pinball figure. Lower is better on both axes, and the dashed line
-marks the Pareto frontier.</p>
+from the pinball figure. Lower is better on both axes. Table values are means
+across the 8 folds.</p>
 <table>
 <thead><tr><th>model</th><th>fit + predict (s)</th><th>MAPE (%)</th><th>pinball loss (MW)</th></tr></thead>
 <tbody>{table_rows}</tbody>
 </table>
-{parts}
+<h2>Paired differences vs baseline</h2>
+<p class="note">MAPE is relative to <code>{escape(str(mape_baseline))}</code>;
+pinball loss is relative to <code>{escape(str(pinball_baseline))}</code>. Error
+bars are 95% paired t-intervals across the 8 folds; pairing removes the common
+seasonal/fold difficulty. The baseline is shown at zero difference. With only 8
+correlated folds, treat these intervals as descriptive. Dashed colored lines
+mark the Pareto frontiers.</p>
+{difference_parts}
+<h2>Absolute accuracy vs fit + predict time</h2>
+<p class="note">Means across the 8 CV folds, shown without error bars. Dashed
+colored lines mark the Pareto frontiers.</p>
+{absolute_parts}
 </body>
 </html>
 """
     path.write_text(page, "utf-8")
-
 
 def keep_metric(metric):
     """Only show the 5/50/95% pinball scores and the 90% interval coverage."""
@@ -533,6 +941,29 @@ document.querySelectorAll('#table-controls input').forEach(cb => {
 });
 </script>"""
 
+differences_html = differences_figure(fold_scores).to_html(
+    full_html=False,
+    include_plotlyjs="cdn",
+    config={"responsive": True, "displaylogo": False},
+)
+bars_html = bars_figure(fold_scores).to_html(
+    full_html=False,
+    include_plotlyjs=False,
+    config={"responsive": True, "displaylogo": False},
+)
+coverage_width_html = coverage_width_figure(fold_scores).to_html(
+    full_html=False,
+    include_plotlyjs=False,
+    config={"responsive": True, "displaylogo": False},
+)
+point_baseline = baseline_name("mae__{h}h")
+distribution_baseline = baseline_name("d2_pinball_score__{h}h__q_0.5")
+baseline_note = (
+    f"MAE/MAPE are relative to <code>{escape(str(point_baseline))}</code>; "
+    "pinball/width are relative to "
+    f"<code>{escape(str(distribution_baseline))}</code>."
+)
+
 page = f"""
 <!DOCTYPE html>
 <html>
@@ -558,6 +989,19 @@ All rows across the 8 CV folds are pooled.</p>
 {table_html}
 {calibration_link}
 {pareto_link}
+<h1>Paired differences vs baseline</h1>
+<p class="note">Bars show each model's mean paired difference from the baseline,
+grouped by horizon. {baseline_note} Error bars are 95% paired t-intervals across
+the 8 folds; pairing removes the common seasonal/fold difficulty. The dashed
+zero line means no difference. For MAE, MAPE and width, negative is better; for
+d2 pinball, positive is better. With only 8 correlated folds, treat these
+intervals as descriptive.</p>
+{differences_html}
+<h1>Coverage vs interval width</h1>
+<p class="note">Each point is one model/horizon, using the mean coverage and
+mean interval width across the 8 folds. The vertical dashed line is the nominal
+90% coverage. Points close to the line are well calibrated; lower is sharper.</p>
+{coverage_width_html}
 <h1>Plots</h1>
 <p>True vs predicted load per model and horizon (separate pages, linked below
 to keep this page small). For quantile models the plot shows the median as a
@@ -565,6 +1009,12 @@ line and the 5%-95% interval as a shaded band. The combined pages stack all
 models for a horizon with tied axes: zooming one chart zooms the others.</p>
 {combined_section}
 {"".join(sections)}
+<h1>Absolute metrics by horizon</h1>
+<p class="note">Horizontal bars show the mean across the 8 CV folds, grouped by
+horizon (1h, 12h, 24h), without error bars. The table above pools all rows
+across folds, so its values can differ slightly, especially for the nonlinear
+pinball-d2 metrics.</p>
+{bars_html}
 {table_js}
 </body>
 </html>

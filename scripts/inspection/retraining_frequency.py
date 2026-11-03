@@ -27,16 +27,16 @@ MODEL_ORDER = (
     "hgb_quantile_q7",
     "hgb_quantile_recal_q7",
     "tabicl_n8_full",
-    "kumo",
+    "kumo_forecast",
 )
-ZERO_SHOT_MODELS = ("chronos2_ctx4000", "kumo")
+ZERO_SHOT_MODELS = ("chronos2_ctx4000", "kumo_forecast")
 MODEL_COLORS = {
     "chronos2_ctx4000": "#0072B2",
     "hgb_mean": "#E69F00",
     "hgb_quantile_q7": "#009E73",
     "hgb_quantile_recal_q7": "#CC79A7",
     "tabicl_n8_full": "#D55E00",
-    "kumo": "#56B4E9",
+    "kumo_forecast": "#56B4E9",
 }
 FALLBACK_COLORS = ("#0072B2", "#E69F00", "#009E73", "#CC79A7", "#D55E00", "#56B4E9")
 
