@@ -15,7 +15,13 @@ quantile interval (e.g. 5%-95%) as a shaded band, rather than a separate line
 per quantile. A separate `pareto.html` page compares average MAPE and average
 pinball loss against total fit + predict time.
 
-    python scripts/model_comparison/build_cv_report.py results/model_comparison/my_study
+With `--operator`, the ENTSO-E day-ahead load forecast (the French TSO's
+operational forecast) is added as an extra 24h-only reference: it appears in
+the metrics table, the 24h true-vs-predicted page, the absolute-metric bars and
+the paired-difference figure. It has no quantiles and no fit time, so it is not
+shown in the pinball, coverage/width or Pareto figures.
+
+    python scripts/model_comparison/build_cv_report.py results/model_comparison/my_study --operator
 
 Writes `<dir>/report.html`, `<dir>/pareto.html` and
 `<dir>/plots/all_models_<horizon>h.html`.
@@ -35,6 +41,7 @@ from compare_predictions import (
     compute_scores,
     horizons_of,
     quantile_levels_of,
+    table_from_results,
 )
 from plotly.subplots import make_subplots
 from sklearn.metrics import mean_pinball_loss
@@ -47,10 +54,20 @@ from uncertainty import (
     row_loss,
 )
 
+from electricity_load_forecasting import data_dir
+
+OPERATOR_HORIZON = 24
+OPERATOR_NAME = "operator_day_ahead"
+
 PRED_COLOR = "#1f77b4"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("dir", type=Path)
+parser.add_argument(
+    "--operator",
+    action="store_true",
+    help="add the ENTSO-E day-ahead forecast as a 24h-only reference",
+)
 args = parser.parse_args()
 
 paths = sorted(args.dir.glob("*_cv_predictions.parquet"))
@@ -69,6 +86,61 @@ for _name, _df in frames.items():
 DAY, FOLD = row_index(_first)
 
 results, table = compare(paths)
+
+
+def load_operator_day_ahead(reference, horizon=OPERATOR_HORIZON):
+    """ENTSO-E day-ahead forecast aligned to ``reference``'s rows.
+
+    The CSV column is a forecast for the interval labelled by its timestamp,
+    so it is matched to ``prediction_time + horizon`` (the target time), the
+    same convention as the actual ``{horizon}h`` column. Rows are returned in
+    ``reference`` order so row-level losses stay aligned with ``DAY``/``FOLD``.
+    """
+    files = sorted(data_dir().glob("Total Load - Day Ahead*.csv"))
+    if not files:
+        raise SystemExit(f"no day-ahead load CSVs in {data_dir()}")
+    hourly = (
+        pl.concat(pl.read_csv(path, null_values=["N/A", "-"]) for path in files)
+        .select(
+            pl.col("Time (UTC)")
+            .str.split(by=" - ")
+            .list.first()
+            .str.to_datetime("%d.%m.%Y %H:%M", time_zone="UTC")
+            .alias("time"),
+            pl.col("Day-ahead Total Load Forecast [MW] - BZN|FR")
+            .cast(pl.Float64)
+            .alias("operator"),
+        )
+        .group_by(pl.col("time").dt.truncate("1h"))
+        .agg(pl.col("operator").mean())
+        .sort("time")
+    )
+    target = reference.select(
+        "prediction_time",
+        "split",
+        pl.col(f"{horizon}h").alias("actual"),
+        pl.col("prediction_time").add(pl.duration(hours=horizon)).alias("time"),
+    )
+    joined = target.join(hourly, on="time", how="left", maintain_order="left")
+    if joined["operator"].null_count():
+        raise SystemExit("operator forecast has missing values on the CV rows")
+    return joined.select(
+        "prediction_time",
+        "split",
+        pl.col("actual").alias(f"{horizon}h"),
+        pl.col("operator").alias(f"pred_{horizon}h"),
+    )
+
+
+if args.operator:
+    operator = load_operator_day_ahead(_first)
+    frames[OPERATOR_NAME] = operator
+    results[OPERATOR_NAME] = {
+        key: value
+        for key, value in compute_scores(operator).items()
+        if not key.endswith("__average")
+    }
+    table = table_from_results(results)
 
 
 def fit_predict_time_seconds(path):
@@ -198,13 +270,13 @@ def bars_figure(fold_scores):
         row, col = row + 1, col + 1
         data = {}
         for name in frames:
-            keys = [template.format(h=h) for h in horizons]
-            if not all(key in fold_scores[name] for key in keys):
-                continue
-            data[name] = {
+            values = {
                 h: scale * float(np.mean(fold_scores[name][template.format(h=h)]))
                 for h in horizons
+                if template.format(h=h) in fold_scores[name]
             }
+            if values:
+                data[name] = values
         models = sorted(
             data,
             key=lambda name: float(np.mean(list(data[name].values()))),
@@ -212,7 +284,7 @@ def bars_figure(fold_scores):
         for h in horizons:
             fig.add_trace(
                 go.Bar(
-                    x=[data[name][h] for name in models],
+                    x=[data[name].get(h) for name in models],
                     y=models,
                     orientation="h",
                     marker_color=HORIZON_COLORS.get(h, PRED_COLOR),
@@ -267,23 +339,34 @@ def differences_figure():
         for name in frames:
             if name == baseline:
                 continue
-            losses = {h: row_loss(frames[name], kind, h, q) for h in horizons}
-            base = {h: row_loss(frames[baseline], kind, h, q) for h in horizons}
-            if any(losses[h] is None or base[h] is None for h in horizons):
-                continue
-            data[name] = {
-                h: paired_difference(losses[h], base[h], DAY, FOLD) for h in horizons
-            }
+            summaries = {}
+            for h in horizons:
+                if f"{h}h" not in frames[name].columns:
+                    continue
+                losses = row_loss(frames[name], kind, h, q)
+                base = row_loss(frames[baseline], kind, h, q)
+                if losses is None or base is None:
+                    continue
+                summaries[h] = paired_difference(losses, base, DAY, FOLD)
+            if summaries:
+                data[name] = summaries
         models = sorted(
             data,
-            key=lambda name: float(np.mean([data[name][h]["mean"] for h in horizons])),
+            key=lambda name: float(
+                np.mean([value["mean"] for value in data[name].values()])
+            ),
         )
         for j, h in enumerate(horizons):
+            active = [name for name in models if h in data[name]]
+            if not active:
+                continue
             color = HORIZON_COLORS.get(h, PRED_COLOR)
             # models are on integer y positions; horizons and folds are offsets
             offset = (j - (len(horizons) - 1) / 2) * 0.27
             fold_x, fold_y, fold_text = [], [], []
             for k, name in enumerate(models):
+                if h not in data[name]:
+                    continue
                 folds = data[name][h]["folds"]
                 fold_x += list(folds)
                 fold_y += [k + offset + (f - len(folds) / 2) * 0.012 for f in range(len(folds))]
@@ -302,11 +385,11 @@ def differences_figure():
                 row=row,
                 col=col,
             )
-            above, below = zip(*(error_bar(data[name][h]) for name in models))
+            above, below = zip(*(error_bar(data[name][h]) for name in active))
             fig.add_trace(
                 go.Scatter(
-                    x=[data[name][h]["mean"] for name in models],
-                    y=[k + offset for k in range(len(models))],
+                    x=[data[name][h]["mean"] for name in active],
+                    y=[models.index(name) + offset for name in active],
                     mode="markers",
                     marker={
                         "size": 9,
@@ -331,7 +414,7 @@ def differences_figure():
                             data[name][h]["n_lower"],
                             len(data[name][h]["folds"]),
                         ]
-                        for name in models
+                        for name in active
                     ],
                     hovertemplate=(
                         "%{customdata[0]}<br>"
@@ -868,9 +951,15 @@ def write_combined_page(path, h):
     The charts share the same initial x/y ranges and their zoom/pan is kept in
     sync with a small relayout listener. Checkboxes hide individual models.
     """
-    names = list(frames)
+    visible = [
+        (name, df)
+        for name, df in frames.items()
+        if f"{h}h" in df.columns
+        and any(column.startswith(f"pred_{h}h") for column in df.columns)
+    ]
+    names = [name for name, _ in visible]
     xs, ys = [], []
-    for df in frames.values():
+    for _, df in visible:
         target_time = df["prediction_time"] + datetime.timedelta(hours=h)
         xs.extend([target_time.min(), target_time.max()])
         columns = [f"{h}h"] + [c for c in df.columns if c.startswith(f"pred_{h}h")]
@@ -882,7 +971,7 @@ def write_combined_page(path, h):
     y0, y1 = y0 - pad, y1 + pad
 
     parts = []
-    for i, (name, df) in enumerate(frames.items()):
+    for i, (name, df) in enumerate(visible):
         fig = make_figure(df, name, h)
         fig.update_layout(
             height=330,
@@ -1034,6 +1123,15 @@ baseline_note = (
     "pinball/width are relative to "
     f"<code>{escape(str(distribution_baseline))}</code>."
 )
+operator_note = (
+    "<p><code>operator_day_ahead</code> is the ENTSO-E day-ahead load forecast "
+    "for France (issued by RTE), shown for the 24h horizon only: its forecast "
+    "for target time <code>t</code> is compared with the actual load at "
+    "<code>t</code>. It has no quantiles or fit time, so it is absent from the "
+    "pinball, coverage/width and Pareto figures.</p>"
+    if args.operator
+    else ""
+)
 
 page = f"""
 <!DOCTYPE html>
@@ -1056,6 +1154,7 @@ tbody tr:hover {{ background-color: #eef3ff; }}
 <p>MAE / MAPE use the median (point) prediction; pinball-d2, coverage and
 width use all available quantiles ("-" = model has no quantiles).
 All rows across the 8 CV folds are pooled.</p>
+{operator_note}
 {table_controls}
 {table_html}
 <h1>Plots</h1>

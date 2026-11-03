@@ -134,6 +134,18 @@ def compute_scores(df):
     return scores
 
 
+def table_from_results(results):
+    """Build the wide metric table from a name -> scores dict."""
+    all_keys = sorted(
+        {k for s in results.values() for k in s},
+        key=lambda k: (not k.startswith(("mae", "mape", "coverage", "width")), k),
+    )
+    return pl.DataFrame(
+        {"metric": all_keys}
+        | {name: [s.get(k) for k in all_keys] for name, s in results.items()}
+    )
+
+
 def compare(paths):
     """Return (results, table): per-model score dicts, and a polars table."""
     results = {}
@@ -143,15 +155,7 @@ def compare(paths):
         results[name] = compute_scores(df)
         print(f"{name}: {df.height} pooled rows across {df['split'].n_unique()} folds")
 
-    all_keys = sorted(
-        {k for s in results.values() for k in s},
-        key=lambda k: (not k.startswith(("mae", "mape", "coverage", "width")), k),
-    )
-    table = pl.DataFrame(
-        {"metric": all_keys}
-        | {name: [s.get(k) for k in all_keys] for name, s in results.items()}
-    )
-    return results, table
+    return results, table_from_results(results)
 
 
 if __name__ == "__main__":

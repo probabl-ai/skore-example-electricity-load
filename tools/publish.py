@@ -9,6 +9,7 @@ from urllib.parse import quote
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 SKIP_HTML = re.compile(r"^node_.*\.html$")
 BACK_LINK_MARKER = "<!-- back-to-index -->"
+MAIN_REPORT_TITLE = "Walk-forward CV model comparison"
 SECTION_TITLES = {
     "inspection": "Inspection and diagnostics",
     "model-comparison-forecast": "Model comparison (forecast weather)",
@@ -156,7 +157,14 @@ def report_files():
                 files.append(path)
         elif path.is_dir():
             files.extend(walk(path))
-    return sorted(files, key=lambda p: (-p.stat().st_mtime, str(p)))
+    return sorted(
+        files,
+        key=lambda p: (
+            html_title(p) != MAIN_REPORT_TITLE,
+            -p.stat().st_mtime,
+            str(p),
+        ),
+    )
 
 
 def is_skrub_report(path, title):
