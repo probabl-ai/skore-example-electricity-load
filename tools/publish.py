@@ -9,17 +9,17 @@ from urllib.parse import quote
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 SKIP_HTML = re.compile(r"^node_.*\.html$")
 SECTION_TITLES = {
-    "calibration": "Calibration",
-    "model-comparison": "Model comparison",
+    "inspection": "Inspection and diagnostics",
     "model-comparison-forecast": "Model comparison (forecast weather)",
+    "calibration": "Calibration",
     "weather-impact": "Weather data impact",
     "retraining-frequency": "Retraining frequency",
     "history-length": "Training-history length",
     "tuning": "Hyperparameter tuning",
-    "inspection": "Inspection and diagnostics",
     "checks": "Checks",
     "misc": "Miscellaneous",
     "reports": "Other reports",
+    "model-comparison": "Model comparison (oracle weather, archived)",
 }
 
 
