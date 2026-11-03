@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>calibration</title>
+<title>quantile_regressor</title>
 
 <!-- Prism.js (v1.29.0, MIT license) is vendored in prism-1.29.0/ so that this
      page is fully standalone and does not require a network connection.
@@ -20,221 +20,111 @@ pre[data-line]{position:relative;padding:1em 0 1em 3em}.line-highlight{position:
 </head>
 <body>
 
-    <h1><code>/home/jerome/workspace/repos/skore-example-electricity-load/calibration.py</code></h1>
+    <h1><code>/workspace/src/electricity_load_forecasting/quantile_regressor.py</code></h1>
 
-<pre id="code-container" class="line-numbers" data-line=""><code class="language-python" id="code">import re
-import warnings
+<pre id="code-container" class="line-numbers" data-line=""><code class="language-python" id="code">&#34;&#34;&#34;
+copied from:
+https://github.com/probabl-ai/forecasting/blob/main/content/python_files/prediction_intervals.py
+&#34;&#34;&#34;
 
 import numpy as np
 import polars as pl
+from scipy.interpolate import interp1d
 from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.dummy import DummyRegressor
-from sklearn.linear_model import RidgeCV
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import SplineTransformer
-
-# Default inner CV when none is given (hourly rows: 7 days between train and
-# test, as in electricity_load_forecasting.TimeSeriesSplitter, which is what
-# make_data_op uses instead).
-_DEFAULT_GAP_ROWS = 24 * 7
+from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestClassifier
+from sklearn.preprocessing import KBinsDiscretizer
+from sklearn.utils import check_random_state
+from sklearn.utils.validation import check_consistent_length, check_is_fitted
 
 
-class Recalibrator(RegressorMixin, BaseEstimator):
-    &#34;&#34;&#34;Post-hoc correction of a quantile estimator based on its reliability.
+class HGBQuantileRegressor(RegressorMixin, BaseEstimator):
+    def __init__(self, quantiles=(0.05, 0.5, 0.95), hgb_params=None):
+        self.quantiles = quantiles
+        self.hgb_params = hgb_params
 
-    Wraps a single-target quantile regressor whose ``predict`` returns a polars
-    DataFrame with columns ``q_&lt;level&gt;`` (e.g. ``q_0.05``, ``q_0.95``), such as
-    ``HGBQuantileRegressor`` or ``BinnedQuantileRegressor``.
-
-    Fitting:
-
-    1. Collect out-of-fold predictions of ``estimator`` with ``cv``, and
-       concatenate them with the matching ``y``. Unlike sklearn&#39;s
-       ``cross_val_predict``, the test folds need not partition the data (a
-       walk-forward ``cv`` never tests on the first rows); rows that are never
-       in a test fold are simply not used for calibration.
-    2. Separately for each predicted quantile level tau: bin the out-of-fold
-       predictions ``p`` into ``n_bins`` bins with the same number of points.
-       In each bin, the estimator claims that ``p`` is the tau-quantile of
-       ``y``; measure the actual tau-quantile of the residuals ``y - p``, in MW.
-       This is the shift needed to make that bin calibrated.
-    3. Fit a smooth model (spline transformer with 5 basis functions + RidgeCV,
-       weighted by bin size, normalized to a mean of 1) mapping the predicted
-       value to the shift. If ties leave fewer than 5 distinct bins, a constant
-       shift is used instead (with a warning).
-    4. Refit ``estimator`` on all the data. At prediction time, add the learned
-       shift (a function of each predicted value) to its predictions, then sort
-       the quantiles so that they do not cross.
-
-    Parameters
-    ----------
-    estimator : quantile regressor
-        See above for the expected ``predict`` output.
-    cv : cross-validation splitter, default=None
-        Used to obtain out-of-fold predictions. It must respect the temporal
-        order. Default: ``TimeSeriesSplit(n_splits=5, gap=24 * 7)``, assuming
-        hourly rows. ``fit`` can pass extra arguments to its ``split`` method
-        (``split_kwargs``).
-    n_last_folds : int or None, default=None
-        If not None, only calibrate on the out-of-fold predictions of the last
-        ``n_last_folds`` folds of ``cv``, so that the correction follows recent
-        behaviour rather than the whole history (useful if calibration drifts
-        over time). The other folds are not fit, which also saves time. Note
-        that the last fold of a walk-forward ``cv`` may be shorter than the others.
-    n_bins : int, default=10
-        Number of bins of predicted values. Keep it small: estimating a tail
-        quantile such as 0.95 needs several hundred points per bin to be
-        reasonably stable. At least 5 (the number of spline basis functions).
-
-    Attributes
-    ----------
-    estimator_ : the estimator refit on all the data.
-    n_folds_used_ : number of cv folds used for the calibration.
-    oof_ : polars DataFrame
-        The out-of-fold data the calibration is learned from: the predicted
-        quantiles (columns ``q_&lt;level&gt;``), ``y``, ``row`` (position in the
-        ``X`` given to ``fit``) and ``inner_fold`` (index of the fold in
-        ``cv.split``).
-    quantile_levels_ : dict {column name: quantile level}
-    shift_models_ : dict {column name: fitted model, predicted value -&gt; shift}
-    bin_summary_ : dict {column name: polars DataFrame}
-        For inspection: for each bin, the mean prediction, the number of
-        points, the measured shift and the empirical coverage before
-        correction.
-    &#34;&#34;&#34;
-
-    def __init__(self, estimator, cv=None, n_bins=10, n_last_folds=None):
-        self.estimator = estimator
-        self.cv = cv
-        self.n_bins = n_bins
-        self.n_last_folds = n_last_folds
-
-    def fit(self, X, y, split_kwargs=None):
-        &#34;&#34;&#34;Fit the estimator and its correction.
-
-        ``split_kwargs`` is a dict of extra keyword arguments for
-        ``cv.split(X, y, **split_kwargs)``, for example the prediction times
-        when ``X`` is an array that does not contain them.
-        &#34;&#34;&#34;
-        if self.n_bins &lt; 5:
-            raise ValueError(f&#34;n_bins must be at least 5, got {self.n_bins}&#34;)
-        if self.n_last_folds is not None and self.n_last_folds &lt; 1:
-            raise ValueError(f&#34;n_last_folds must be at least 1, got {self.n_last_folds}&#34;)
-        X = np.asarray(X)
-        y = np.asarray(y, dtype=float).ravel()
-        cv = self.cv if self.cv is not None else _default_cv()
-
-        folds = list(cv.split(X, y, **(split_kwargs or {})))
-        n_skipped = 0
-        if self.n_last_folds is not None:
-            n_skipped = max(len(folds) - self.n_last_folds, 0)
-            folds = folds[n_skipped:]
-        self.n_folds_used_ = len(folds)
-
-        y_oof, pred_oof, row_oof, fold_oof = [], [], [], []
-        for fold, (train, test) in enumerate(folds, start=n_skipped):
-            fold_estimator = clone(self.estimator).fit(X[train], y[train])
-            pred_oof.append(fold_estimator.predict(X[test]))
-            y_oof.append(y[test])
-            row_oof.append(np.asarray(test))
-            fold_oof.append(np.full(len(test), fold))
-        if not y_oof:
-            raise ValueError(&#34;cv produced no splits&#34;)
-        pred_oof = pl.concat(pred_oof, how=&#34;vertical&#34;)
-        y_oof = np.concatenate(y_oof)
-        # keep the out-of-fold data, for inspection
-        self.oof_ = pred_oof.with_columns(
-            row=pl.Series(np.concatenate(row_oof)),
-            inner_fold=pl.Series(np.concatenate(fold_oof)),
-            y=pl.Series(y_oof),
-        )
-
-        self.quantile_levels_ = _quantile_levels(pred_oof)
-        self.shift_models_ = {}
-        self.bin_summary_ = {}
-        for column, tau in self.quantile_levels_.items():
-            p = pred_oof[column].to_numpy()
-            model, summary = self._fit_shift_model(p, y_oof - p, tau)
-            self.shift_models_[column] = model
-            self.bin_summary_[column] = summary
-
-        self.estimator_ = clone(self.estimator).fit(X, y)
+    def fit(self, X, y):
+        self.quantiles_ = sorted(self.quantiles)
+        params = (self.hgb_params or {}) | {&#34;loss&#34;: &#34;quantile&#34;}
+        self.estimators_ = {
+            q: HistGradientBoostingRegressor(quantile=q, **params).fit(X, y)
+            for q in self.quantiles_
+        }
         return self
 
-    def _fit_shift_model(self, p, residuals, tau):
-        # bins with an equal number of points; np.unique in case of ties
-        edges = np.unique(np.quantile(p, np.linspace(0, 1, self.n_bins + 1)))
-        bin_ids = np.searchsorted(edges[1:-1], p, side=&#34;right&#34;)
-        rows = []
-        for b in np.unique(bin_ids):
-            in_bin = bin_ids == b
-            rows.append(
-                {
-                    &#34;mean_prediction&#34;: float(p[in_bin].mean()),
-                    &#34;count&#34;: int(in_bin.sum()),
-                    &#34;shift&#34;: float(np.quantile(residuals[in_bin], tau)),
-                    &#34;empirical_coverage&#34;: float((residuals[in_bin] &lt;= 0).mean()),
-                }
-            )
-        summary = pl.DataFrame(rows)
-        if len(summary) &lt; 5:
-            # many identical predictions (e.g. a saturated model) can leave too
-            # few distinct bins for the spline: fall back to a constant shift
-            # rather than failing in the middle of a long CV
-            warnings.warn(
-                f&#34;Only {len(summary)} distinct bins for quantile {tau} (many tied &#34;
-                &#34;predictions): using a constant shift.&#34;,
-                stacklevel=2,
-            )
-            model = DummyRegressor(
-                strategy=&#34;constant&#34;, constant=float(np.quantile(residuals, tau))
-            ).fit(summary[[&#34;mean_prediction&#34;]].to_numpy(), summary[&#34;shift&#34;].to_numpy())
-            return model, summary
-        # 5 basis functions: n_knots + degree - 1 = 3 + 3 - 1
-        model = make_pipeline(
-            SplineTransformer(n_knots=3, degree=3, extrapolation=&#34;constant&#34;),
-            RidgeCV(alphas=np.logspace(-3, 3, 13)),
+    def predict(self, X):
+        result = np.asarray([e.predict(X) for e in self.estimators_.values()])
+        result.sort(axis=0)
+        return pl.DataFrame(
+            result.T, schema=[f&#34;q_{q}&#34; for q in self.quantiles_], orient=&#34;row&#34;
         )
-        # Weights proportional to the bin sizes, but normalized to a mean of 1:
-        # the ridge penalty is not scaled by the weights, so with raw counts
-        # (hundreds or thousands) the alpha grid would be ineffective, and the
-        # regularization would depend on the size of the training set.
-        weights = summary[&#34;count&#34;].to_numpy() / summary[&#34;count&#34;].mean()
-        model.fit(
-            summary[&#34;mean_prediction&#34;].to_numpy()[:, None],
-            summary[&#34;shift&#34;].to_numpy(),
-            ridgecv__sample_weight=weights,
+
+
+class BinnedQuantileRegressor(BaseEstimator, RegressorMixin):
+    def __init__(
+        self,
+        estimator=None,
+        n_bins=100,
+        default_quantiles=(0.05, 0.5, 0.95),
+        random_state=None,
+    ):
+        self.n_bins = n_bins
+        self.estimator = estimator
+        self.default_quantiles = default_quantiles
+        self.random_state = random_state
+
+    def fit(self, X, y):
+        # Lightweight input validation: most of the input validation will be
+        # handled by the sub estimators.
+        random_state = check_random_state(self.random_state)
+        check_consistent_length(X, y)
+        self.target_binner_ = KBinsDiscretizer(
+            n_bins=self.n_bins,
+            strategy=&#34;quantile&#34;,
+            subsample=200_000,
+            encode=&#34;ordinal&#34;,
+            quantile_method=&#34;averaged_inverted_cdf&#34;,
+            random_state=random_state,
         )
-        return model, summary
 
-    def predict(self, X, **predict_params):
-        pred = self.estimator_.predict(np.asarray(X), **predict_params)
-        corrected = pred.to_numpy().astype(float, copy=True)
-        for i, column in enumerate(pred.columns):
-            model = self.shift_models_[column]
-            corrected[:, i] += model.predict(corrected[:, [i]])
-        # shifts are learned independently per quantile: avoid crossing
-        order = np.argsort([self.quantile_levels_[c] for c in pred.columns])
-        corrected[:, order] = np.sort(corrected[:, order], axis=1)
-        # explicit orientation: polars guesses it for a square array
-        return pl.DataFrame(corrected, schema=pred.columns, orient=&#34;row&#34;)
+        y_binned = (
+            self.target_binner_.fit_transform(np.asarray(y).reshape(-1, 1))
+            .ravel()
+            .astype(np.int32)
+        )
 
+        # Fit the multiclass classifier to predict the binned targets from the
+        # training set.
+        if self.estimator is None:
+            estimator = RandomForestClassifier(random_state=random_state)
+        else:
+            estimator = clone(self.estimator)
+        self.estimator_ = estimator.fit(X, y_binned)
+        return self
 
-def _default_cv():
-    return TimeSeriesSplit(n_splits=5, gap=_DEFAULT_GAP_ROWS)
+    def predict(self, X, quantiles=None):
+        if quantiles is None:
+            quantiles = self.default_quantiles
+        check_is_fitted(self, &#34;estimator_&#34;)
+        edges = self.target_binner_.bin_edges_[0]
+        n_bins = edges.shape[0] - 1
+        expected_shape = (X.shape[0], n_bins)
+        y_proba_raw = self.estimator_.predict_proba(X)
 
+        # Some might stay empty on the training set. Typically, classifiers do
+        # not learn to predict an explicit 0 probability for unobserved classes
+        # so we have to post process their output:
+        if y_proba_raw.shape != expected_shape:
+            y_proba = np.zeros(shape=expected_shape)
+            y_proba[:, self.estimator_.classes_] = y_proba_raw
+        else:
+            y_proba = y_proba_raw
 
-def _quantile_levels(pred):
-    levels = {}
-    for column in pred.columns:
-        match = re.fullmatch(r&#34;q_(.+)&#34;, column)
-        if match is None:
-            raise ValueError(
-                f&#34;Expected quantile columns named &#39;q_&lt;level&gt;&#39;, got {column!r}&#34;
-            )
-        levels[column] = float(match.group(1))
-    return levels
+        # Build the mapper for inverse CDF mapping, from cumulated
+        # probabilities to continuous prediction.
+        y_cdf = np.zeros(shape=(X.shape[0], edges.shape[0]))
+        y_cdf[:, 1:] = np.cumsum(y_proba, axis=1)
+        result = np.asarray([interp1d(y_cdf_i, edges)(quantiles) for y_cdf_i in y_cdf])
+        return pl.DataFrame(result, schema=[f&#34;q_{q}&#34; for q in quantiles])
 </code></pre>
 
 <script>

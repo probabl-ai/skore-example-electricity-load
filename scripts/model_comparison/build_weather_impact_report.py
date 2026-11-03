@@ -25,6 +25,20 @@ from uncertainty import (
     row_loss,
 )
 
+DATASETS = Path(__file__).resolve().parents[2] / "datasets"
+CITIES = [
+    "paris",
+    "lyon",
+    "marseille",
+    "toulouse",
+    "lille",
+    "limoges",
+    "nantes",
+    "strasbourg",
+    "brest",
+    "bayonne",
+]
+
 MODEL_ORDER = [
     "hgb_mean",
     "hgb_quantile_q7",
@@ -63,6 +77,89 @@ def load_frames(directory):
     }
 
 
+def load_temperatures(city, days=28):
+    """Oracle and 24h/48h-ahead forecast temperature for one city.
+
+    Returns the last ``days`` days of the ``temperature_2m`` series with columns
+    ``time``, ``oracle``, ``forecast_24h`` and ``forecast_48h`` (all °C).
+    """
+
+    def read(name, column):
+        return pl.read_parquet(DATASETS / name).select(
+            pl.col("time").dt.cast_time_unit("us"),
+            pl.col("temperature_2m").alias(column),
+        )
+
+    df = (
+        read(f"weather_{city}.parquet", "oracle")
+        .join(read(f"weather_forecast_day1_{city}.parquet", "forecast_24h"), on="time")
+        .join(read(f"weather_forecast_day2_{city}.parquet", "forecast_48h"), on="time")
+        .sort("time")
+    )
+    return df.filter(pl.col("time") > pl.col("time").max() - pl.duration(days=days))
+
+
+def temperature_figure(days=28, default_city="paris"):
+    """Oracle vs 24h- and 48h-ahead forecast temperature, one city at a time."""
+    series = [
+        ("oracle", "Oracle", "#222222", "dash"),
+        ("forecast_24h", "24h forecast", "#1f77b4", "solid"),
+        ("forecast_48h", "48h forecast", "#D55E00", "solid"),
+    ]
+    fig = go.Figure()
+    order = []
+    for city in CITIES:
+        df = load_temperatures(city, days)
+        for column, label, color, dash in series:
+            fig.add_trace(
+                go.Scatter(
+                    x=df["time"],
+                    y=df[column],
+                    mode="lines",
+                    name=label,
+                    line={"color": color, "width": 1.4, "dash": dash},
+                    visible=city == default_city,
+                    showlegend=city == default_city,
+                    hovertemplate=(
+                        label + " %{x|%Y-%m-%d %H:%M}: %{y:.1f} °C<extra></extra>"
+                    ),
+                )
+            )
+            order.append(city)
+    buttons = [
+        {
+            "label": city.title(),
+            "method": "update",
+            "args": [
+                {
+                    "visible": [entry == city for entry in order],
+                    "showlegend": [entry == city for entry in order],
+                },
+                {"title": f"Temperature: oracle vs 24h/48h forecasts — {city.title()}"},
+            ],
+        }
+        for city in CITIES
+    ]
+    fig.update_yaxes(title_text="temperature (°C)")
+    fig.update_layout(
+        height=480,
+        title=f"Temperature: oracle vs 24h/48h forecasts — {default_city.title()}",
+        margin={"t": 110, "b": 60, "l": 60, "r": 30},
+        updatemenus=[
+            {
+                "buttons": buttons,
+                "direction": "down",
+                "x": 1.0,
+                "xanchor": "right",
+                "y": 1.16,
+                "yanchor": "top",
+                "showactive": True,
+            }
+        ],
+    )
+    return fig
+
+
 def weather_row_loss(df, metric, h):
     """Per-row MAPE (%) or pinball loss (MW, mean over 5/50/95%) at horizon h."""
     if metric == "mape":
@@ -79,9 +176,7 @@ def oracle_forecast_figure(oracle_frames, forecast_frames, models):
     fig = make_subplots(
         rows=len(HORIZONS),
         cols=2,
-        subplot_titles=[
-            f"{h}h — {short}" for h in HORIZONS for _, short in metrics
-        ],
+        subplot_titles=[f"{h}h — {short}" for h in HORIZONS for _, short in metrics],
         horizontal_spacing=0.14,
         vertical_spacing=0.07,
     )
@@ -222,7 +317,6 @@ def main():
     models = [m for m in MODEL_ORDER if m in oracle and m in forecast]
     models_with_impact = [m for m in models if m != "kumo_forecast"]
 
-
     metric_rows = []
     quantile_rows = []
     for model in models:
@@ -346,6 +440,11 @@ def main():
         include_plotlyjs=False,
         config={"responsive": True, "displaylogo": False},
     )
+    ts_html = temperature_figure().to_html(
+        full_html=False,
+        include_plotlyjs=False,
+        config={"responsive": True, "displaylogo": False},
+    )
 
     page = f"""<!DOCTYPE html>
 <html lang="en">
@@ -380,7 +479,7 @@ but excluded from the weather-impact charts. Its near-zero delta is expected.</p
 <thead><tr><th>Model</th><th>MAE oracle</th><th>MAE forecast</th>
 <th>ΔMAE (MW, %)</th><th>MAPE oracle</th><th>MAPE forecast</th>
 <th>ΔMAPE (pp)</th></tr></thead>
-<tbody>{''.join(metric_rows)}</tbody>
+<tbody>{"".join(metric_rows)}</tbody>
 </table>
 
 <h2>Fold-level oracle vs forecast by horizon</h2>
@@ -395,11 +494,18 @@ KumoForecast is excluded from these panels (see the note above).</p>
 {mape_html}
 {delta_html}
 
+<h2>Temperature: oracle vs 24h/48h forecasts</h2>
+<p class="note">Hourly temperature over the last four weeks of the data. The
+oracle is the Open-Meteo Historical Forecast value; the 24h and 48h forecasts
+are the GFS <code>previous_day1</code>/<code>previous_day2</code> values (valid
+time minus 24h/48h). Use the dropdown to switch city.</p>
+{ts_html}
+
 <h2>Quantile and calibration changes</h2>
 <table>
 <thead><tr><th>Model</th><th>q0.05 pinball</th><th>q0.5 pinball</th>
 <th>q0.95 pinball</th><th>90% coverage</th><th>90% width (MW)</th></tr></thead>
-<tbody>{''.join(quantile_rows)}</tbody>
+<tbody>{"".join(quantile_rows)}</tbody>
 </table>
 
 <h2>Pareto plots</h2>

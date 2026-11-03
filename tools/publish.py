@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 SKIP_HTML = re.compile(r"^node_.*\.html$")
+BACK_LINK_MARKER = "<!-- back-to-index -->"
 SECTION_TITLES = {
     "inspection": "Inspection and diagnostics",
     "model-comparison-forecast": "Model comparison (forecast weather)",
@@ -163,6 +164,44 @@ def is_skrub_report(path, title):
     return title == "DataOp report" or "skrub" in relative
 
 
+def is_skrub_page(path):
+    """True for any page inside a skrub-generated report directory."""
+    directory = path.parent
+    while directory == DOCS or DOCS in directory.parents:
+        index = directory / "index.html"
+        if index.exists() and html_title(index) == "DataOp report":
+            return True
+        if directory == DOCS:
+            break
+        directory = directory.parent
+    return False
+
+
+def inject_back_link(path):
+    """Add a link to the docs index at the top of one page (idempotent)."""
+    if path == DOCS / "index.html" or is_skrub_page(path):
+        return False
+    text = path.read_text("utf-8")
+    if BACK_LINK_MARKER in text:
+        return False
+    body = re.search(r"<body[^>]*>", text, re.IGNORECASE)
+    if body is None:
+        return False
+    depth = len(path.relative_to(DOCS).parts) - 1
+    href = "../" * depth + "index.html"
+    link = (
+        f'{BACK_LINK_MARKER}<div style="font-family: sans-serif; font-size: 0.9em;'
+        f' padding: 0.4em 0;"><a href="{href}">&larr; Back to index</a></div>'
+    )
+    path.write_text(text[: body.end()] + link + text[body.end() :], "utf-8")
+    return True
+
+
+def inject_back_links():
+    """Add the back link to every published page except skrub's own pages."""
+    return [path for path in DOCS.rglob("*.html") if inject_back_link(path)]
+
+
 def build_index():
     groups = {}
     for path in report_files():
@@ -269,6 +308,9 @@ def main():
     for source, destination in plan:
         copy_source(source, destination, args.all)
         print(f"copied {source} -> {destination}")
+
+    changed = inject_back_links()
+    print(f"added the back-to-index link to {len(changed)} page(s)")
 
     if not args.no_index:
         build_index()

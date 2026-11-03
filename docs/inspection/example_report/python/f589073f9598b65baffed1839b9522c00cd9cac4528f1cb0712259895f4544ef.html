@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>_select_cols</title>
+<title>__init__</title>
 
 <!-- Prism.js (v1.29.0, MIT license) is vendored in prism-1.29.0/ so that this
      page is fully standalone and does not require a network connection.
@@ -20,264 +20,37 @@ pre[data-line]{position:relative;padding:1em 0 1em 3em}.line-highlight{position:
 </head>
 <body>
 
-    <h1><code>/home/jerome/workspace/repos/skrub/skrub/_select_cols.py</code></h1>
+    <h1><code>/workspace/src/electricity_load_forecasting/__init__.py</code></h1>
 
-<pre id="code-container" class="line-numbers" data-line=""><code class="language-python" id="code">from sklearn.base import TransformerMixin, check_is_fitted
+<pre id="code-container" class="line-numbers" data-line=""><code class="language-python" id="code">from .pipeline import (
+    concat_X_y_predictions,
+    cross_val_predict,
+    data_dir,
+    fetch_city_weather_forecast,
+    fetch_load_mw_history,
+    get_env,
+    get_new_date,
+    get_output_dir,
+    make_data_op,
+    plot_predictions,
+    resample,
+)
+from .splitter import train_test_split
 
-from . import selectors as s
-from ._base import SkrubBaseEstimator
-from ._single_column_transformer import SingleColumnTransformer
-
-
-class SelectCols(TransformerMixin, SkrubBaseEstimator):
-    &#34;&#34;&#34;Select a subset of a DataFrame&#39;s columns.
-
-    A ``ValueError`` is raised if any of the provided column names are not in the
-    dataframe.
-
-    Accepts :obj:`pandas.DataFrame` and :obj:`polars.DataFrame` inputs.
-
-    Parameters
-    ----------
-    cols : list of str, str or :ref:`selector&lt;selectors_ref&gt;`
-        The columns to select, or a selector. A single column name can be passed as a
-        ``str``: ``&#34;col_name&#34;`` is the same as ``[&#34;col_name&#34;]``. See the
-        :ref:`selectors&lt;user_guide_selectors&gt;` user guide for more info on selectors.
-
-    See Also
-    --------
-    DropCols : Dropping cols by name, dtypes, or general skrub selectors.
-    Cleaner: Can be used to drop columns with too many NaNs.
-
-    Examples
-    --------
-    &gt;&gt;&gt; import pandas as pd
-    &gt;&gt;&gt; from skrub import SelectCols
-    &gt;&gt;&gt; df = pd.DataFrame({&#34;A&#34;: [1, 2], &#34;B&#34;: [10, 20], &#34;C&#34;: [&#34;x&#34;, &#34;y&#34;]})
-    &gt;&gt;&gt; df
-       A   B  C
-    0  1  10  x
-    1  2  20  y
-    &gt;&gt;&gt; SelectCols([&#34;C&#34;, &#34;A&#34;]).fit_transform(df)
-       C  A
-    0  x  1
-    1  y  2
-    &gt;&gt;&gt; SelectCols([&#34;X&#34;, &#34;A&#34;]).fit_transform(df)
-    Traceback (most recent call last):
-        ...
-    ValueError: The following columns are requested for selection but missing from dataframe: [&#39;X&#39;]
-    &#34;&#34;&#34;  # noqa: E501
-
-    def __init__(self, cols):
-        self.cols = cols
-
-    def fit(self, X, y=None):
-        &#34;&#34;&#34;Fit the transformer.
-
-        Parameters
-        ----------
-        X : DataFrame or None
-            If `X` is a DataFrame, the transformer checks that all the column
-            names provided in ``self.cols`` can be found in `X`.
-
-        y : None
-            Unused.
-
-        Returns
-        -------
-        SelectCols
-            The transformer itself.
-        &#34;&#34;&#34;
-        self.columns_ = s.make_selector(self.cols).expand(X)
-        return self
-
-    def transform(self, X):
-        &#34;&#34;&#34;Transform a dataframe by selecting columns.
-
-        Parameters
-        ----------
-        X : DataFrame
-            The DataFrame on which to apply the selection.
-
-        Returns
-        -------
-        DataFrame
-            The input DataFrame ``X`` after selecting only the columns listed
-            in ``self.cols`` (in the provided order).
-        &#34;&#34;&#34;
-        return s.select(X, self.columns_)
-
-    def get_feature_names_out(self, input_features=None):
-        &#34;&#34;&#34;Get output feature names for transformation.
-
-        Parameters
-        ----------
-        input_features : array-like of str or None, default=None
-            Ignored.
-
-        Returns
-        -------
-        feature_names_out : ndarray of str objects
-            Transformed feature names.
-        &#34;&#34;&#34;
-        check_is_fitted(self, &#34;columns_&#34;)
-        return self.columns_
-
-
-class DropCols(TransformerMixin, SkrubBaseEstimator):
-    &#34;&#34;&#34;Drop a subset of a DataFrame&#39;s columns.
-
-    The other columns are kept in their original order. A ``ValueError`` is raised if
-    any of the provided column names are not in the dataframe.
-
-    Accepts :obj:`pandas.DataFrame` and :obj:`polars.DataFrame` inputs.
-
-    Parameters
-    ----------
-    cols : list of str, str or :ref:`selector &lt;selectors_ref&gt;`
-        The columns to drop, or a selector. A single column name can be passed as a
-        ``str``: ``&#34;col_name&#34;`` is the same as ``[&#34;col_name&#34;]``. See the
-        :ref:`selectors &lt;user_guide_selectors&gt;` user guide for more info on selectors.
-
-    See Also
-    --------
-    SelectCols : Selecting cols by name, dtypes, or general skrub selectors.
-    Cleaner: Can be used to drop columns with too many nulls (or NaNs).
-
-    Examples
-    --------
-    &gt;&gt;&gt; import pandas as pd
-    &gt;&gt;&gt; from skrub import DropCols
-    &gt;&gt;&gt; df = pd.DataFrame({&#34;A&#34;: [1, 2], &#34;B&#34;: [10, 20], &#34;C&#34;: [&#34;x&#34;, &#34;y&#34;]})
-    &gt;&gt;&gt; df
-       A   B  C
-    0  1  10  x
-    1  2  20  y
-    &gt;&gt;&gt; DropCols([&#34;A&#34;, &#34;C&#34;]).fit_transform(df)
-        B
-    0  10
-    1  20
-    &gt;&gt;&gt; DropCols([&#34;X&#34;]).fit_transform(df)
-    Traceback (most recent call last):
-        ...
-    ValueError: The following columns are requested for selection but missing from dataframe: [&#39;X&#39;]
-    &#34;&#34;&#34;  # noqa: E501
-
-    def __init__(self, cols):
-        self.cols = cols
-
-    def fit(self, X, y=None):
-        &#34;&#34;&#34;Fit the transformer.
-
-        Parameters
-        ----------
-        X : DataFrame or None
-            If `X` is a DataFrame, the transformer checks that all the column
-            names provided in ``self.cols`` can be found in `X`.
-
-        y : None
-            Unused.
-
-        Returns
-        -------
-        DropCols
-            The transformer itself.
-        &#34;&#34;&#34;
-        selector = s.make_selector(self.cols)
-        self.kept_cols_ = (~selector).expand(X)
-        self.dropped_cols_ = selector.expand(X)
-        return self
-
-    def transform(self, X):
-        &#34;&#34;&#34;Transform a dataframe by dropping columns.
-
-        Parameters
-        ----------
-        X : DataFrame
-            The DataFrame on which to apply the selection.
-
-        Returns
-        -------
-        DataFrame
-            The input DataFrame ``X`` after dropping the columns listed in
-            ``self.cols``.
-        &#34;&#34;&#34;
-        return s.select(X, s.make_selector(self.kept_cols_))
-
-    def get_feature_names_out(self, input_features=None):
-        &#34;&#34;&#34;Get output feature names for transformation.
-
-        Parameters
-        ----------
-        input_features : array-like of str or None, default=None
-            Ignored.
-
-        Returns
-        -------
-        feature_names_out : ndarray of str objects
-            Transformed feature names.
-        &#34;&#34;&#34;
-        check_is_fitted(self, &#34;kept_cols_&#34;)
-        return self.kept_cols_
-
-
-class Drop(SingleColumnTransformer):
-    &#34;&#34;&#34;Drop the selected DataFrame&#39;s column unconditionally.
-
-    The other columns are kept in their original order. A ``ValueError`` is raised if
-    any of the provided column names are not in the dataframe.
-    This transformer is different from :class:`DropCols` in that it is designed
-    to be used with other transformers, for example to remove all columns with a
-    given type from a transformation.
-
-
-    Parameters
-    ----------
-    cols : list of str, str or :ref:`selector &lt;selectors_ref&gt;`
-        The columns to drop, or a selector. A single column name can be passed as a
-        ``str``: ``&#34;col_name&#34;`` is the same as ``[&#34;col_name&#34;]``. See the
-        :ref:`selectors &lt;user_guide_selectors&gt;` user guide for more info on selectors.
-
-    See Also
-    --------
-    DropCols : drop columns by name, or skrub selectors.
-    ApplyToCols: Can be used to Apply a transformer to selected columns in a dataframe.
-    TableVectorizer: Transform a dataframe to a numeric (vectorized) representation.
-
-    Examples
-    --------
-    ``Drop`` is meant to be used with other transformers to drop columns with a
-    given type or other property.
-
-    For example, if we want to vectorize a dataframe but drop the numeric columns,
-    we can do:
-
-    &gt;&gt;&gt; import pandas as pd
-    &gt;&gt;&gt; from skrub import Drop
-    &gt;&gt;&gt; df = pd.DataFrame({&#34;num&#34;: [1,2,3], &#34;text&#34;: [&#34;hello&#34;, &#34;world&#34;, &#34;foo&#34;]})
-    &gt;&gt;&gt; df
-       num  text
-    0    1  hello
-    1    2  world
-    2    3    foo
-    &gt;&gt;&gt; from skrub import TableVectorizer
-    &gt;&gt;&gt; TableVectorizer(numeric=Drop()).fit_transform(df)
-        text_foo  text_hello  text_world
-    0       0.0         1.0         0.0
-    1       0.0         0.0         1.0
-    2       1.0         0.0         0.0
-
-    Here, only the &#34;text&#34; column is vectorized, and the &#34;num&#34; column is dropped
-    entirely.
-
-    &#34;&#34;&#34;
-
-    def fit_transform(self, column, y=None):
-        self.all_outputs_ = []
-        return []
-
-    def transform(self, column):
-        return []
+__all__ = [
+    &#34;concat_X_y_predictions&#34;,
+    &#34;cross_val_predict&#34;,
+    &#34;data_dir&#34;,
+    &#34;fetch_city_weather_forecast&#34;,
+    &#34;fetch_load_mw_history&#34;,
+    &#34;get_env&#34;,
+    &#34;get_new_date&#34;,
+    &#34;get_output_dir&#34;,
+    &#34;make_data_op&#34;,
+    &#34;plot_predictions&#34;,
+    &#34;resample&#34;,
+    &#34;train_test_split&#34;,
+]
 </code></pre>
 
 <script>

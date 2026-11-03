@@ -2,20 +2,23 @@
 Build an HTML report comparing hgb_mean, tabicl and chronos2 from the
 `*_cv_predictions.parquet` files written by `cross_validate_models.py` (no
 re-running any model): a metrics table (MAE, MAPE, pinball-d2, coverage/width,
-from `compare_predictions.compute_scores`) with links to one true-vs-predicted
-plot per model and horizon.
+from `compare_predictions.compute_scores`) and links to true-vs-predicted
+plots.
 
 Plots are written as separate standalone HTML files under `<dir>/plots/` (kept
-out of the main page so it stays small and fast to load). For models with
-quantiles, the plot shows the true load, the median prediction as a line, and
-the outermost quantile interval (e.g. 5%-95%) as a shaded band, rather than a
-separate line per quantile. A separate `pareto.html` page compares average MAPE
-and average pinball loss against total fit + predict time.
+out of the main page so it stays small and fast to load). There is one page per
+horizon (`all_models_<horizon>h.html`) that stacks every model with tied axes,
+instead of one page per model and horizon: the combined pages carry the same
+series and avoid duplicating the embedded data. For models with quantiles, the
+plot shows the true load, the median prediction as a line, and the outermost
+quantile interval (e.g. 5%-95%) as a shaded band, rather than a separate line
+per quantile. A separate `pareto.html` page compares average MAPE and average
+pinball loss against total fit + predict time.
 
     python scripts/model_comparison/build_cv_report.py results/model_comparison/my_study
 
 Writes `<dir>/report.html`, `<dir>/pareto.html` and
-`<dir>/plots/<model>_<horizon>h.html`.
+`<dir>/plots/all_models_<horizon>h.html`.
 """
 
 import argparse
@@ -976,16 +979,6 @@ model to hide it.</p>
 plots_dir = args.dir / "plots"
 plots_dir.mkdir(exist_ok=True)
 
-sections = []
-for name, df in frames.items():
-    links = []
-    for h in horizons_of(df):
-        fig = make_figure(df, name, h)
-        out_name = f"{name}_{h}h.html"
-        fig.write_html(plots_dir / out_name)
-        links.append(f'<li><a href="plots/{out_name}">{h}h horizon</a></li>')
-    sections.append(f"<h2>{name}</h2>\n<ul>\n" + "\n".join(links) + "\n</ul>")
-
 combined_links = []
 for h in horizons_of(next(iter(frames.values()))):
     out_name = f"all_models_{h}h.html"
@@ -1065,6 +1058,12 @@ width use all available quantiles ("-" = model has no quantiles).
 All rows across the 8 CV folds are pooled.</p>
 {table_controls}
 {table_html}
+<h1>Plots</h1>
+<p>True vs predicted load per horizon (separate pages, linked below to keep this
+page small). For quantile models the plot shows the median as a line and the
+5%-95% interval as a shaded band. Each page stacks all models with tied axes:
+zooming one chart zooms the others, and models can be hidden.</p>
+{combined_section}
 {calibration_link}
 {pareto_link}
 <h1>Paired differences vs baseline</h1>
@@ -1079,13 +1078,6 @@ both sides of zero mean the sign depends on the period.</p>
 mean interval width across the 8 folds. The vertical dashed line is the nominal
 90% coverage. Points close to the line are well calibrated; lower is sharper.</p>
 {coverage_width_html}
-<h1>Plots</h1>
-<p>True vs predicted load per model and horizon (separate pages, linked below
-to keep this page small). For quantile models the plot shows the median as a
-line and the 5%-95% interval as a shaded band. The combined pages stack all
-models for a horizon with tied axes: zooming one chart zooms the others.</p>
-{combined_section}
-{"".join(sections)}
 <h1>Absolute metrics by horizon</h1>
 <p class="note">Horizontal bars show the mean across the 8 CV folds, grouped by
 horizon (1h, 12h, 24h), without error bars. The table above pools all rows
