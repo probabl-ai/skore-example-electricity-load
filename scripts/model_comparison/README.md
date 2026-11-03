@@ -32,9 +32,11 @@ python scripts/model_comparison/cross_validate_models.py \
 ```
 
 Weather defaults to the safe-lead historical forecasts (`--weather forecast`):
-day1 for horizons <=18h and day2 above. Use `--weather oracle` for the oracle
-files. This works for the tabular, Chronos and Kumo pipelines because they all
-read `city_weather_fetcher` from the environment.
+day1 for horizons <=18h and day2 above. `--weather oracle` is meant to select the
+oracle files, but **currently it is a silent no-op** (the default fetcher is now
+the forecast one and the flag only overrides it for `forecast`), so it still uses
+the forecast files; see `_scratch/REVIEW_REPORT_2.md`, finding 1.1. Note also that
+the Chronos and Kumo pipelines always use the day2 files for every horizon.
 
 Each run writes `<model>_cv_predictions.parquet` and `<model>_scores.csv`.
 Use `--tag` to keep multiple runs of the same model side by side. Add
@@ -65,3 +67,22 @@ python scripts/model_comparison/plot_cv_comparison.py results/model_comparison/m
 - `plot_cv_comparison.py` overlays all models on one plot per horizon.
 - `compare_predictions.py` recomputes MAE, MAPE and pinball-d2 directly from the
   saved parquet files.
+- `build_combined_pareto.py` and `build_weather_impact_report.py` build the
+  oracle vs forecast weather pages (`results/weather_impact/report/`).
+- `uncertainty.py` is the shared helper for paired differences between models,
+  used by the three report scripts above. For two models on identical rows it
+  gives the per-fold mean differences (one dot per fold in the plots) and a 95%
+  moving-block bootstrap interval (14-day blocks) on the daily mean difference
+  of the pooled test rows. The interval is conditional on the fitted models
+  (training randomness is not included) and the folds are not treated as
+  independent samples, so there is no t-interval across folds. Use it for any
+  new paired comparison instead of re-implementing intervals.
+
+## Provenance
+
+Every result directory and every generated page must record what produced it
+(command, commit and dirty state, package versions and hardware, the weather
+source and features actually used, resolved hyperparameters, and the source
+directories of derived results). See "Provenance (mandatory)" in `AGENTS.md`.
+When adding a `cross_validate_models.py` run to a study directory, write its
+`README.md` entry at the same time.

@@ -17,7 +17,9 @@ experiment with features of skore and other packages.
 - `docs/` — published HTML reports and the experiment index.
 
 Each experiment result directory should contain a short `README.md` describing
-what was run, when, and with which settings.
+what was run, when, and with which settings. Results and generated pages must also record their full
+provenance (command, commit, weather source, features, resolved hyperparameters,
+source directories); see "Provenance (mandatory)" in `AGENTS.md`.
 
 ## Quick start
 

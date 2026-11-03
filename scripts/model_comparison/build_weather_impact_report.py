@@ -16,8 +16,14 @@ import plotly.graph_objects as go
 import polars as pl
 from compare_predictions import compute_scores
 from plotly.subplots import make_subplots
-from scipy.stats import t as student_t
-from sklearn.metrics import mean_pinball_loss
+from uncertainty import (
+    INTERVAL_NOTE,
+    PINBALL_LEVELS,
+    error_bar,
+    paired_difference,
+    row_index,
+    row_loss,
+)
 
 MODEL_ORDER = [
     "hgb_mean",
@@ -48,126 +54,112 @@ def load_scores(directory):
     return scores
 
 
-def average_pinball_loss(df, selected_horizons=HORIZONS):
-    """Mean pinball loss (MW) over 5/50/95% quantiles and selected horizons."""
-    horizons = [h for h in selected_horizons if f"{h}h" in df.columns]
-    levels = sorted(
-        {
-            float(column.rsplit("__q_", 1)[1])
-            for column in df.columns
-            if "__q_" in column
-        }
-    )
-    chosen = [q for q in levels if q in {0.05, 0.5, 0.95}]
-    if not chosen:
-        return None
-    losses = []
-    for h in horizons:
-        y = df[f"{h}h"].to_numpy()
-        for q in chosen:
-            losses.append(
-                mean_pinball_loss(
-                    y, df[f"pred_{h}h__q_{q}"].to_numpy(), alpha=q
-                )
-            )
-    return float(np.mean(losses))
+def load_frames(directory):
+    return {
+        path.stem.removesuffix("_cv_predictions"): pl.read_parquet(path).sort(
+            "prediction_time"
+        )
+        for path in sorted(directory.glob("*_cv_predictions.parquet"))
+    }
 
 
-def load_fold_scores(directory):
-    result = {}
-    for path in sorted(directory.glob("*_cv_predictions.parquet")):
-        name = path.stem.removesuffix("_cv_predictions")
-        df = pl.read_parquet(path)
-        splits = sorted(df["split"].unique().to_list())
-        fold_frames = [
-            df.filter(pl.col("split") == split) for split in splits
-        ]
-        folds = [compute_scores(frame) for frame in fold_frames]
-        pinball = {}
-        for h in HORIZONS:
-            values = [
-                average_pinball_loss(frame, [h]) for frame in fold_frames
-            ]
-            pinball[h] = (
-                None
-                if any(value is None for value in values)
-                else np.array(values, dtype=float)
-            )
-        result[name] = {
-            "mape": {
-                h: np.array([f[f"mape__{h}h"] for f in folds], dtype=float)
-                for h in HORIZONS
-            },
-            "pinball": pinball,
-        }
-    return result
+def weather_row_loss(df, metric, h):
+    """Per-row MAPE (%) or pinball loss (MW, mean over 5/50/95%) at horizon h."""
+    if metric == "mape":
+        return row_loss(df, "mape", h)
+    losses = [row_loss(df, "pinball", h, q) for q in PINBALL_LEVELS]
+    return None if any(loss is None for loss in losses) else np.mean(losses, axis=0)
 
 
-def paired_ci(values):
-    if len(values) < 2:
-        return 0.0
-    standard_error = float(np.std(values, ddof=1)) / np.sqrt(len(values))
-    return float(student_t.ppf(0.975, len(values) - 1) * standard_error)
-
-
-def oracle_forecast_figure(oracle_folds, forecast_folds, models):
+def oracle_forecast_figure(oracle_frames, forecast_frames, models):
     metrics = [
-        ("mape", "MAPE (pp)", "MAPE difference (percentage points)"),
-        ("pinball", "Pinball loss (MW)", "Pinball loss difference (MW)"),
+        ("mape", "MAPE (pp)"),
+        ("pinball", "Pinball loss (MW)"),
     ]
     fig = make_subplots(
         rows=len(HORIZONS),
         cols=2,
         subplot_titles=[
-            f"{h}h — {short}" for h in HORIZONS for _, short, _ in metrics
+            f"{h}h — {short}" for h in HORIZONS for _, short in metrics
         ],
         horizontal_spacing=0.14,
         vertical_spacing=0.07,
     )
     for row, h in enumerate(HORIZONS, start=1):
-        for col, (metric, _, label) in enumerate(metrics, start=1):
-            rows = []
+        for col, (metric, _) in enumerate(metrics, start=1):
+            data = {}
             for model in models:
-                oracle_values = oracle_folds[model][metric][h]
-                forecast_values = forecast_folds[model][metric][h]
-                if oracle_values is None or forecast_values is None:
+                o, f = oracle_frames[model], forecast_frames[model]
+                if not o.select("prediction_time", "split").equals(
+                    f.select("prediction_time", "split")
+                ):
+                    raise SystemExit(f"{model}: oracle and forecast rows differ")
+                oracle_loss = weather_row_loss(o, metric, h)
+                forecast_loss = weather_row_loss(f, metric, h)
+                if oracle_loss is None or forecast_loss is None:
                     continue
-                n_folds = min(len(oracle_values), len(forecast_values))
-                diffs = oracle_values[:n_folds] - forecast_values[:n_folds]
-                if metric == "mape":
-                    diffs = 100 * diffs
-                wins = int(np.sum(diffs < 0))
-                rows.append(
-                    (
-                        LABELS[model],
-                        float(np.mean(diffs)),
-                        paired_ci(diffs),
-                        f"{wins}/{n_folds}",
-                    )
-                )
-            rows.sort(key=lambda row: row[1])
-            means = [row[1] for row in rows]
-            cis = [row[2] for row in rows]
+                day, fold = row_index(o)
+                data[model] = paired_difference(oracle_loss, forecast_loss, day, fold)
+            models_sorted = sorted(data, key=lambda m: data[m]["mean"])
+            fold_x = [v for m in models_sorted for v in data[m]["folds"]]
+            fold_y = [
+                k + (f - 3.5) * 0.04
+                for k, m in enumerate(models_sorted)
+                for f in range(len(data[m]["folds"]))
+            ]
             fig.add_trace(
-                go.Bar(
-                    x=means,
-                    y=[row[0] for row in rows],
-                    orientation="h",
+                go.Scatter(
+                    x=fold_x,
+                    y=fold_y,
+                    mode="markers",
+                    marker={"size": 5, "color": "#1f77b4", "opacity": 0.5},
+                    text=[
+                        f"{LABELS[m]}, fold {f}"
+                        for m in models_sorted
+                        for f in range(len(data[m]["folds"]))
+                    ],
+                    hovertemplate="%{text}: %{x:+.3g}<extra></extra>",
+                    showlegend=False,
+                ),
+                row=row,
+                col=col,
+            )
+            above, below = zip(*(error_bar(data[m]) for m in models_sorted))
+            fig.add_trace(
+                go.Scatter(
+                    x=[data[m]["mean"] for m in models_sorted],
+                    y=list(range(len(models_sorted))),
+                    mode="markers",
+                    marker={
+                        "size": 10,
+                        "color": "#1f77b4",
+                        "symbol": "diamond",
+                        "line": {"color": "#333333", "width": 1},
+                    },
                     error_x={
                         "type": "data",
-                        "array": cis,
+                        "symmetric": False,
+                        "array": above,
+                        "arrayminus": below,
                         "color": "#333333",
                         "thickness": 1.5,
                         "width": 4,
                     },
-                    marker_color="#1f77b4",
-                    text=[row[3] for row in rows],
-                    textposition="outside",
-                    textfont={"size": 11},
-                    cliponaxis=False,
+                    customdata=[
+                        [
+                            LABELS[m],
+                            data[m]["low"],
+                            data[m]["high"],
+                            data[m]["n_lower"],
+                            len(data[m]["folds"]),
+                        ]
+                        for m in models_sorted
+                    ],
                     hovertemplate=(
-                        "%{y}<br>mean oracle − forecast: %{x:+.3g}<br>"
-                        "oracle wins: %{text}<extra></extra>"
+                        "%{customdata[0]}<br>mean oracle − forecast: %{x:+.3g}<br>"
+                        "95% block bootstrap: [%{customdata[1]:+.3g}, %{customdata[2]:+.3g}]<br>"
+                        "oracle lower in %{customdata[3]}/%{customdata[4]} folds"
+                        "<extra></extra>"
                     ),
                     showlegend=False,
                 ),
@@ -176,20 +168,14 @@ def oracle_forecast_figure(oracle_folds, forecast_folds, models):
             )
             fig.add_vline(
                 x=0,
-                line={"color": "gray", "width": 1},
+                line={"color": "gray", "width": 1, "dash": "dash"},
                 row=row,
                 col=col,
             )
-            low = min(0.0, min([mean - ci for mean, ci in zip(means, cis)]))
-            high = max(0.0, max([mean + ci for mean, ci in zip(means, cis)]))
-            pad = 0.2 * (high - low if high > low else 1.0)
-            fig.update_xaxes(
-                title_text="oracle − forecast",
-                range=[low - pad, high + pad],
-                row=row,
-                col=col,
-            )
+            fig.update_xaxes(title_text="oracle − forecast", row=row, col=col)
             fig.update_yaxes(
+                tickvals=list(range(len(models_sorted))),
+                ticktext=[LABELS[m] for m in models_sorted],
                 autorange="reversed",
                 row=row,
                 col=col,
@@ -200,6 +186,7 @@ def oracle_forecast_figure(oracle_folds, forecast_folds, models):
         margin={"t": 85, "b": 65, "l": 130, "r": 50},
     )
     return fig
+
 
 def pct(value):
     return f"{100 * value:.2f}%"
@@ -230,8 +217,8 @@ def main():
 
     oracle = load_scores(args.oracle_dir)
     forecast = load_scores(args.forecast_dir)
-    oracle_folds = load_fold_scores(args.oracle_dir)
-    forecast_folds = load_fold_scores(args.forecast_dir)
+    oracle_frames = load_frames(args.oracle_dir)
+    forecast_frames = load_frames(args.forecast_dir)
     models = [m for m in MODEL_ORDER if m in oracle and m in forecast]
     models_with_impact = [m for m in models if m != "kumo_forecast"]
 
@@ -343,7 +330,7 @@ def main():
     )
 
     win_html = oracle_forecast_figure(
-        oracle_folds, forecast_folds, models
+        oracle_frames, forecast_frames, models_with_impact
     ).to_html(
         full_html=False,
         include_plotlyjs="cdn",
@@ -397,13 +384,11 @@ but excluded from the weather-impact charts. Its near-zero delta is expected.</p
 </table>
 
 <h2>Fold-level oracle vs forecast by horizon</h2>
-<p class="note">Each panel is one horizon. Bars show the mean paired difference
-(oracle − forecast) across the common CV folds; negative means the
-oracle-weather error is lower. Error bars are 95% paired t-intervals across the
-8 folds. The text at the bar end is the number of folds where the oracle beats
-the forecast. Ties count as no win. MAPE uses the median prediction; pinball
+<p class="note">Each panel is one horizon. Markers show the mean paired difference
+(oracle − forecast); negative means the oracle-weather error is lower.
+{INTERVAL_NOTE} MAPE uses the median prediction; pinball
 loss is averaged over the 5%, 50% and 95% quantiles for that horizon.
-KumoForecast has no quantiles, so it is absent from the pinball panels.</p>
+KumoForecast is excluded from these panels (see the note above).</p>
 {win_html}
 
 <h2>MAPE by horizon</h2>
