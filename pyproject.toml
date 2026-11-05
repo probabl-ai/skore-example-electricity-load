@@ -27,7 +27,7 @@ chronos = [
     "torch",
 ]
 tabicl = [
-    "tabicl",
+    "tabicl[forecast]",
 ]
 kumo = [
     "structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@78130b67d1712232c38089c54687b30b8b032ec6",

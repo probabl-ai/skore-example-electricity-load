@@ -1,7 +1,7 @@
 """
 Walk-forward cross-validation for one pipeline (hgb_mean, hgb_quantile,
 hgb_quantile_recal, tabicl, tabicl_recal, kumo_tabular, kumo_tabular_recal,
-chronos2 or kumo_forecast), using the same strategy as
+chronos2, kumo_forecast or tabicl_forecast), using the same strategy as
 `cross_validate.py` (`elf.cross_val_predict`, no skore): iterate over all
 `electricity_load_forecasting.splitter.TimeSeriesSplitter` folds, fit on train,
 predict and score on test, concatenate across folds.
@@ -40,6 +40,9 @@ Run from the repository root:
         --output_dir results/model_comparison/my_study
     python scripts/model_comparison/cross_validate_models.py \
         --model kumo_forecast --device cuda \
+        --output_dir results/model_comparison/my_study
+    python scripts/model_comparison/cross_validate_models.py \
+        --model tabicl_forecast --device cuda \
         --output_dir results/model_comparison/my_study
 
 Use `--reports` to also write the skrub fit/predict/single-date reports.
@@ -84,6 +87,7 @@ parser.add_argument(
         "kumo_tabular_recal",
         "chronos2",
         "kumo_forecast",
+        "tabicl_forecast",
     ],
     required=True,
 )
@@ -126,6 +130,15 @@ parser.add_argument("--kumo_context_hours", type=int, default=512)
 parser.add_argument("--kumo_num_estimators", type=int, default=1)
 parser.add_argument("--kumo_chunk_size", type=int, default=8)
 parser.add_argument("--kumo_no_cross_channel", action="store_true")
+# tabicl_forecast-specific
+parser.add_argument("--tabicl_context_hours", type=int, default=4096)
+parser.add_argument("--tabicl_chunk_size", type=int, default=8)
+parser.add_argument("--tabicl_n_estimators", type=int, default=8)
+parser.add_argument(
+    "--tabicl_point_estimate",
+    choices=["mean", "median"],
+    default="mean",
+)
 parser.add_argument(
     "--quantiles",
     type=float,
@@ -233,6 +246,23 @@ elif args.model == "kumo_forecast":
         calendar=not args.no_calendar,
         chunk_size=args.kumo_chunk_size,
         verbose=True,
+    )
+elif args.model == "tabicl_forecast":
+    from electricity_load_forecasting import tabicl_forecast as tf
+
+    tabicl_config = {"n_estimators": args.tabicl_n_estimators}
+    if args.device is not None:
+        tabicl_config["device"] = args.device
+    pred = tf.make_tabicl_forecast_data_op(
+        horizons=HORIZONS,
+        quantiles=args.quantiles,
+        max_context_length=args.tabicl_context_hours,
+        chunk_size=args.tabicl_chunk_size,
+        cities=() if args.no_weather else "all",
+        temperature_only=True,
+        calendar=not args.no_calendar,
+        tabicl_config=tabicl_config,
+        point_estimate=args.tabicl_point_estimate,
     )
 
 env = elf.get_env()

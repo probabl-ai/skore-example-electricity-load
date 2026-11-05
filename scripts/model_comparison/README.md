@@ -3,7 +3,7 @@
 Scripts for running and comparing walk-forward CV predictions from several
 model families on the same folds: `hgb_mean`, `hgb_quantile`,
 `hgb_quantile_recal`, `tabicl`, `tabicl_recal`, `kumo_tabular`,
-`kumo_tabular_recal`, `chronos2` and `kumo_forecast`.
+`kumo_tabular_recal`, `chronos2`, `kumo_forecast` and `tabicl_forecast`.
 
 Run them from the repository root. A typical study directory is
 `results/model_comparison/<study-name>/`.
@@ -29,14 +29,25 @@ python scripts/model_comparison/cross_validate_models.py \
     --model kumo_tabular_recal --max_train_rows 0 --output_dir results/model_comparison/my_study
 python scripts/model_comparison/cross_validate_models.py \
     --model chronos2 --device cuda --output_dir results/model_comparison/my_study
+python scripts/model_comparison/cross_validate_models.py \
+    --model tabicl_forecast --device cuda --output_dir results/model_comparison/my_study
 ```
+
+`tabicl_forecast` uses `tabicl.TabICLForecaster` (the time-series interface,
+not the tabular `TabICLRegressor`); install it with `tabicl[forecast]`. It uses
+known weather/calendar covariates over the forecast horizon, like the Chronos
+pipeline, and returns 5/50/95% quantiles by default. Its `--tabicl_context_hours`
+(default 4096) and `--tabicl_n_estimators` (default 8) control the context
+window and ensemble size. It fits one TabICL regressor per forecast origin, so
+it is much slower than the tabular `tabicl` model and should be run on a GPU.
 
 Weather defaults to the safe-lead historical forecasts (`--weather forecast`):
 day1 for horizons <=18h and day2 above. `--weather oracle` is meant to select the
 oracle files, but **currently it is a silent no-op** (the default fetcher is now
 the forecast one and the flag only overrides it for `forecast`), so it still uses
 the forecast files; see `_scratch/REVIEW_REPORT_2.md`, finding 1.1. Note also that
-the Chronos and Kumo pipelines always use the day2 files for every horizon.
+the Chronos, Kumo and TabICLForecaster pipelines always use the day2 files for
+every horizon.
 
 Each run writes `<model>_cv_predictions.parquet` and `<model>_scores.csv`.
 Use `--tag` to keep multiple runs of the same model side by side. Add
