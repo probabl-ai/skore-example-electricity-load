@@ -93,8 +93,7 @@ class Recalibrator(RegressorMixin, BaseEstimator):
         ``cv.split(X, y, **split_kwargs)``, for example the prediction times
         when ``X`` is an array that does not contain them.
         """
-        if self.n_bins < 5:
-            raise ValueError(f"n_bins must be at least 5, got {self.n_bins}")
+        self._check_params()
         if self.n_last_folds is not None and self.n_last_folds < 1:
             raise ValueError(
                 f"n_last_folds must be at least 1, got {self.n_last_folds}"
@@ -139,6 +138,10 @@ class Recalibrator(RegressorMixin, BaseEstimator):
 
         self.estimator_ = clone(self.estimator).fit(X, y)
         return self
+
+    def _check_params(self):
+        if self.n_bins < 5:
+            raise ValueError(f"n_bins must be at least 5, got {self.n_bins}")
 
     def _fit_shift_model(self, p, residuals, tau):
         # bins with an equal number of points; np.unique in case of ties
@@ -197,6 +200,42 @@ class Recalibrator(RegressorMixin, BaseEstimator):
         corrected[:, order] = np.sort(corrected[:, order], axis=1)
         # explicit orientation: polars guesses it for a square array
         return pl.DataFrame(corrected, schema=pred.columns, orient="row")
+
+
+class ConformalRecalibrator(Recalibrator):
+    """Recalibrator with a single global shift per quantile level.
+
+    Simpler variant of ``Recalibrator`` (split conformal prediction of the
+    quantiles): same out-of-fold predictions, but no binning by predicted value
+    and no spline + ridge. For each predicted quantile level tau, the correction
+    is one constant: the tau-quantile of all the out-of-fold residuals
+    ``y - p``, added to the predictions of the estimator refit on all the data.
+    The correction therefore fixes the marginal coverage only, not how it
+    varies with the predicted load. See ``Recalibrator`` for the parameters
+    (except ``n_bins``, unused) and attributes; ``shift_models_`` holds
+    constant models and ``bin_summary_`` has a single row per quantile.
+    """
+
+    def __init__(self, estimator, cv=None, n_last_folds=4):
+        self.estimator = estimator
+        self.cv = cv
+        self.n_last_folds = n_last_folds
+
+    def _check_params(self):
+        pass
+
+    def _fit_shift_model(self, p, residuals, tau):
+        shift = float(np.quantile(residuals, tau))
+        summary = pl.DataFrame(
+            {
+                "mean_prediction": [float(p.mean())],
+                "count": [len(p)],
+                "shift": [shift],
+                "empirical_coverage": [float((residuals <= 0).mean())],
+            }
+        )
+        model = DummyRegressor(strategy="constant", constant=shift)
+        return model.fit(summary[["mean_prediction"]].to_numpy(), [shift]), summary
 
 
 def _default_cv():

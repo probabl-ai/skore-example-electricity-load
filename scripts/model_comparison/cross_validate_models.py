@@ -1,8 +1,8 @@
 """
 Walk-forward cross-validation for one pipeline (hgb_mean, hgb_quantile,
-hgb_quantile_recal, tabicl, tabicl_recal, kumo_tabular, kumo_tabular_recal,
-chronos2, kumo_forecast or tabicl_forecast), using the same strategy as
-`cross_validate.py` (`elf.cross_val_predict`, no skore): iterate over all
+hgb_quantile_recal, hgb_quantile_conformal, tabicl, tabicl_recal, kumo_tabular,
+kumo_tabular_recal, chronos2, kumo_forecast or tabicl_forecast), using the same
+strategy as `cross_validate.py` (`elf.cross_val_predict`, no skore): iterate over all
 `electricity_load_forecasting.splitter.TimeSeriesSplitter` folds, fit on train,
 predict and score on test, concatenate across folds.
 
@@ -55,8 +55,10 @@ one independent `HistGradientBoostingRegressor` per quantile (see
 `electricity_load_forecasting.quantile_regressor.HGBQuantileRegressor`), as
 opposed to `hgb_mean`'s single mean-output regressor. `hgb_quantile_recal` is
 the same wrapped in `calibration.Recalibrator` (post-hoc correction of the
-quantiles), with its default settings. `--max_iter` applies to the HGB models
-only (ignored by tabicl/chronos2).
+quantiles), with its default settings. `hgb_quantile_conformal` uses instead
+the simpler `calibration.ConformalRecalibrator` (same inner CV, but one global
+shift per quantile level, no binning or spline). `--max_iter` applies to the
+HGB models only (ignored by tabicl/chronos2).
 
 All pipelines share the horizons (1, 12, 24), the environment
 (`elf.get_env()`), and
@@ -81,6 +83,7 @@ parser.add_argument(
         "hgb_mean",
         "hgb_quantile",
         "hgb_quantile_recal",
+        "hgb_quantile_conformal",
         "tabicl",
         "tabicl_recal",
         "kumo_tabular",
@@ -176,6 +179,14 @@ elif args.model == "hgb_quantile_recal":
         quantiles=args.quantiles,
         max_iter=args.max_iter,
         recalibrate=True,
+    )
+elif args.model == "hgb_quantile_conformal":
+    pred = elf.make_data_op(
+        horizons=HORIZONS,
+        model="hgb_quantile",
+        quantiles=args.quantiles,
+        max_iter=args.max_iter,
+        recalibrate="global",
     )
 elif args.model == "tabicl":
     pred = elf.make_data_op(

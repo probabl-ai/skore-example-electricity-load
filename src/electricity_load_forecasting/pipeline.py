@@ -14,7 +14,7 @@ import skrub
 from polars import selectors as cs
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-from .calibration import Recalibrator
+from .calibration import ConformalRecalibrator, Recalibrator
 from .metrics import coverage_scorer, mean_width_scorer, neg_mape_scorer, pinball_scorer
 from .quantile_regressor import BinnedQuantileRegressor, HGBQuantileRegressor
 from .splitter import TimeSeriesSplitter
@@ -387,6 +387,12 @@ def _recalibrator_cv():
     return TimeSeriesSplitter(min_train_days=365)
 
 
+def _recalibrated(predictor, recalibrate):
+    """Wrap ``predictor`` according to the ``recalibrate`` argument of make_data_op."""
+    cls = ConformalRecalibrator if recalibrate == "global" else Recalibrator
+    return cls(predictor, cv=_recalibrator_cv())
+
+
 def limit_train_size(df, size=9000, mode=skrub.eval_mode()):
     if mode in ("fit", "fit_transform", "preview"):
         return df.tail(size)
@@ -434,13 +440,17 @@ def make_data_op(
     max_train_rows : int or None, default=None
         Max number of rows used for training.
 
-    recalibrate : bool, default=False
+    recalibrate : bool or "global", default=False
         If True, wrap the quantile regressor of each horizon in a
         ``calibration.Recalibrator``, which corrects its predicted quantiles
-        based on their out-of-fold reliability (see that class). Supported for
+        based on their out-of-fold reliability (see that class). If "global",
+        use the simpler ``calibration.ConformalRecalibrator`` (one constant
+        shift per quantile level). Supported for
         ``"hgb_quantile"``, ``"tabicl"`` and ``"kumo_tabular"``. The
         recalibrator's inner CV is ``_recalibrator_cv()``.
     """
+    if recalibrate not in (False, True, "global"):
+        raise ValueError(f"recalibrate must be a bool or 'global', got {recalibrate!r}")
     recalibratable = ("hgb_quantile", "tabicl", "kumo_tabular")
     if recalibrate and model not in recalibratable:
         raise ValueError(
@@ -527,7 +537,7 @@ def make_data_op(
     elif model == "hgb_quantile":
         predictor = hgb_q_regressor
         if recalibrate:
-            predictor = Recalibrator(hgb_q_regressor, cv=_recalibrator_cv())
+            predictor = _recalibrated(hgb_q_regressor, recalibrate)
             # the inner CV needs the prediction times of the training rows, which
             # are not in the numpy array of features that the estimator receives
             fit_kwargs = {"split_kwargs": {"prediction_time": X["prediction_time"]}}
@@ -536,14 +546,14 @@ def make_data_op(
 
         predictor = TabICLQuantileRegressor(quantiles=quantiles, n_estimators=8)
         if recalibrate:
-            predictor = Recalibrator(predictor, cv=_recalibrator_cv())
+            predictor = _recalibrated(predictor, recalibrate)
             fit_kwargs = {"split_kwargs": {"prediction_time": X["prediction_time"]}}
     elif model == "kumo_tabular":
         from .kumotabular import KumoTabularRegressor
 
         predictor = KumoTabularRegressor(quantiles=quantiles, n_estimators=8)
         if recalibrate:
-            predictor = Recalibrator(predictor, cv=_recalibrator_cv())
+            predictor = _recalibrated(predictor, recalibrate)
             fit_kwargs = {"split_kwargs": {"prediction_time": X["prediction_time"]}}
     elif model == "hgb_mean":
         predictor = hgb_regressor

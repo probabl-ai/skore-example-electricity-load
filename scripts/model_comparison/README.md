@@ -2,8 +2,9 @@
 
 Scripts for running and comparing walk-forward CV predictions from several
 model families on the same folds: `hgb_mean`, `hgb_quantile`,
-`hgb_quantile_recal`, `tabicl`, `tabicl_recal`, `kumo_tabular`,
-`kumo_tabular_recal`, `chronos2`, `kumo_forecast` and `tabicl_forecast`.
+`hgb_quantile_recal`, `hgb_quantile_conformal`, `tabicl`, `tabicl_recal`,
+`kumo_tabular`, `kumo_tabular_recal`, `chronos2`, `kumo_forecast` and
+`tabicl_forecast`.
 
 Run them from the repository root. A typical study directory is
 `results/model_comparison/<study-name>/`.
@@ -59,6 +60,11 @@ with `--model hgb_quantile_recal` and the same `--output_dir`; it will then be
 picked up by the report scripts. This is different from
 `scripts/calibration/run_recalibration.py`, which is the in-depth study of the
 recalibrator itself.
+
+`hgb_quantile_conformal` is the same HGB quantile model wrapped in
+`calibration.ConformalRecalibrator`: the same out-of-fold residuals as
+`hgb_quantile_recal`, but corrected by one global constant per quantile level
+(split conformal) instead of a spline + ridge function of the predicted load.
 
 `cross_validate.py` is the small convenience wrapper for a single CV run of the
 default pipeline.

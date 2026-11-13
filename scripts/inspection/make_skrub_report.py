@@ -26,5 +26,5 @@ if args.recalibrate:
 output_dir = ROOT / "results" / "inspection" / f"skrub_report_{name}"
 
 pred = elf.make_data_op(model=args.model, recalibrate=args.recalibrate)
-pred.skb.report(environment=elf.get_env(), output_dir=output_dir)
+pred.skb.report(environment=elf.get_env(), output_dir=output_dir, overwrite=True)
 print(f"wrote {output_dir}")
