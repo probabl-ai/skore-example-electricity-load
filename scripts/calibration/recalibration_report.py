@@ -14,6 +14,7 @@ import polars as pl
 from plotly.subplots import make_subplots
 
 from electricity_load_forecasting import diagnostics as dg
+from electricity_load_forecasting.metrics import PINBALL_LEVELS
 
 pred_columns = dg.pred_columns
 reliability = dg.reliability
@@ -35,8 +36,6 @@ COLORS = {
 def mean_scores(scores):
     numeric = scores.drop("split", "test_start")
     return {c: float(numeric[c].mean()) for c in numeric.columns}
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -251,8 +250,6 @@ def fig_reliability(raw, recal, horizon_columns):
         "folds pooled",
     )
     return fig
-
-
 
 
 def fig_interval_coverage(raw, recal, horizon_columns, n_bins):
@@ -702,12 +699,32 @@ def tables(raw_scores, recal_scores, horizons, quantiles):
     for q in list(quantiles):
         key = f"d2_pinball_score__average__q_{q}"
         pinball_rows.append([f"q_{q}", r[key], c[key], c[key] - r[key]])
+    summary_quantiles = [
+        q for q in quantiles if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
+    ] or list(quantiles)
+    summary_label = "mean over " + "/".join(f"{q:g}" for q in summary_quantiles)
     pinball_rows.append(
         [
-            "mean over quantiles",
-            float(np.mean([row[1] for row in pinball_rows])),
-            float(np.mean([row[2] for row in pinball_rows])),
-            float(np.mean([row[3] for row in pinball_rows])),
+            summary_label,
+            float(
+                np.mean(
+                    [r[f"d2_pinball_score__average__q_{q}"] for q in summary_quantiles]
+                )
+            ),
+            float(
+                np.mean(
+                    [c[f"d2_pinball_score__average__q_{q}"] for q in summary_quantiles]
+                )
+            ),
+            float(
+                np.mean(
+                    [
+                        c[f"d2_pinball_score__average__q_{q}"]
+                        - r[f"d2_pinball_score__average__q_{q}"]
+                        for q in summary_quantiles
+                    ]
+                )
+            ),
         ]
     )
     pinball = table(

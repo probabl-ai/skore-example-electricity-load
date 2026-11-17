@@ -21,6 +21,8 @@ from uncertainty import (
     row_index,
 )
 
+from electricity_load_forecasting.metrics import PINBALL_LEVELS
+
 LABELS = {
     "hgb_mean": "HGB mean",
     "hgb_mean_fast": "HGB mean fast",
@@ -53,7 +55,9 @@ def fit_predict_time_seconds(path):
             return float(scores["fit_time"].sum() + scores["score_time"].sum())
     log_path = target.parent / "run.log"
     if log_path.exists():
-        matches = re.findall(r":\s*([\d.]+)s total", log_path.read_text(errors="replace"))
+        matches = re.findall(
+            r":\s*([\d.]+)s total", log_path.read_text(errors="replace")
+        )
         if matches:
             return float(matches[-1])
     return None
@@ -63,9 +67,7 @@ def average_pinball_loss(df):
     hs = horizons_of(df)
     levels = quantile_levels_of(df, hs[0])
     chosen = [
-        q
-        for q in levels
-        if any(abs(q - target) < 1e-9 for target in (0.05, 0.5, 0.95))
+        q for q in levels if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
     ]
     if not chosen:
         chosen = levels
@@ -76,9 +78,7 @@ def average_pinball_loss(df):
         y = df[f"{h}h"].to_numpy()
         for q in chosen:
             losses.append(
-                mean_pinball_loss(
-                    y, df[f"pred_{h}h__q_{q}"].to_numpy(), alpha=q
-                )
+                mean_pinball_loss(y, df[f"pred_{h}h__q_{q}"].to_numpy(), alpha=q)
             )
     return float(np.mean(losses))
 
@@ -113,9 +113,7 @@ def load_records(directory, source):
                 "mape": float(np.mean(mape_values)),
                 "mape_std": float(np.std(mape_values, ddof=1)),
                 "pinball": (
-                    None
-                    if pinball_values is None
-                    else float(np.mean(pinball_values))
+                    None if pinball_values is None else float(np.mean(pinball_values))
                 ),
                 "pinball_std": (
                     None
@@ -170,9 +168,7 @@ def figure(records, metric, title, y_title, hover):
                 customdata=[[r["label"], r["source"]] for r in data],
                 hovertemplate=(
                     "%{customdata[0]} (%{customdata[1]})"
-                    "<br>fit + predict: %{x:,.0f} s<br>"
-                    + hover
-                    + "<extra></extra>"
+                    "<br>fit + predict: %{x:,.0f} s<br>" + hover + "<extra></extra>"
                 ),
             )
         )
@@ -188,7 +184,10 @@ def figure(records, metric, title, y_title, hover):
                     hoverinfo="skip",
                 )
             )
-    fig.update_xaxes(type="log", title_text="Fit + predict time (s, log scale)")
+    fig.update_xaxes(
+        type="log",
+        title_text="Fit + predict time (s, log scale)<br>(sum over all folds)",
+    )
     fig.update_yaxes(title_text=y_title)
     fig.update_layout(
         title=title,
@@ -205,9 +204,7 @@ def baseline_for(records, source, metric):
         prefix = "hgb_mean"
     else:
         candidates = [
-            n
-            for n in names
-            if n.startswith("hgb_quantile_q7") and "recal" not in n
+            n for n in names if n.startswith("hgb_quantile_q7") and "recal" not in n
         ]
         prefix = "hgb_quantile"
     if candidates:
@@ -221,11 +218,7 @@ def difference_figure(records, metric, title, metric_label):
     for source, (source_label, color, symbol) in SOURCES.items():
         baseline = baseline_for(records, source, metric)
         baseline_record = next(
-            (
-                r
-                for r in records
-                if r["source"] == source and r["name"] == baseline
-            ),
+            (r for r in records if r["source"] == source and r["name"] == baseline),
             None,
         )
         if baseline_record is None or baseline_record[f"{metric}_values"] is None:
@@ -247,7 +240,10 @@ def difference_figure(records, metric, title, metric_label):
                     "time": r["time"],
                     "baseline": r["name"] == baseline,
                     **paired_difference(
-                        r[f"{metric}_rows"], baseline_record[f"{metric}_rows"], day, fold
+                        r[f"{metric}_rows"],
+                        baseline_record[f"{metric}_rows"],
+                        day,
+                        fold,
                     ),
                 }
             )
@@ -287,9 +283,7 @@ def difference_figure(records, metric, title, metric_label):
                 marker={
                     "size": [10 if r["baseline"] else 9 for r in data],
                     "color": color,
-                    "symbol": [
-                        "diamond" if r["baseline"] else symbol for r in data
-                    ],
+                    "symbol": ["diamond" if r["baseline"] else symbol for r in data],
                     "line": {"color": "#333333", "width": 1},
                 },
                 name=f"{source_label} (vs {baseline})",
@@ -328,7 +322,10 @@ def difference_figure(records, metric, title, metric_label):
                     hoverinfo="skip",
                 )
             )
-    fig.update_xaxes(type="log", title_text="Fit + predict time (s, log scale)")
+    fig.update_xaxes(
+        type="log",
+        title_text="Fit + predict time (s, log scale)<br>(sum over all folds)",
+    )
     fig.update_yaxes(
         title_text=f"Δ {metric_label} vs source-specific HGB baseline (lower is better)"
     )

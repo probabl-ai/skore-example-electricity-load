@@ -1,5 +1,10 @@
 from sklearn.metrics import d2_pinball_score, mean_absolute_percentage_error
 
+# Canonical quantile levels used for cross-model pinball averages and interval
+# coverage/width. Models may predict extra levels (e.g. a 7-quantile HGB run),
+# but scores compared across models must use this common subset.
+PINBALL_LEVELS = (0.05, 0.5, 0.95)
+
 
 def split_by_quantile(pred):
     """Split wide quantile predictions into one DataFrame per quantile level."""
@@ -7,9 +12,7 @@ def split_by_quantile(pred):
     for c in pred.columns:
         quantile_cols.setdefault(c.split("__")[1], []).append(c)
     return {
-        q: pred.select(cols).rename(
-            lambda c: c.split("__")[0].removeprefix("pred_")
-        )
+        q: pred.select(cols).rename(lambda c: c.split("__")[0].removeprefix("pred_"))
         for q, cols in quantile_cols.items()
     }
 
@@ -46,9 +49,7 @@ def pinball(y_true, y_pred):
         scores[f"d2_pinball_score__average__{q}"] = d2_pinball_score(
             y_true, q_pred, alpha=alpha
         )
-        detail = d2_pinball_score(
-            y_true, q_pred, alpha=alpha, multioutput="raw_values"
-        )
+        detail = d2_pinball_score(y_true, q_pred, alpha=alpha, multioutput="raw_values")
         scores.update(
             {
                 f"d2_pinball_score__{c}__{q}": float(s)

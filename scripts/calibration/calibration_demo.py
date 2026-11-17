@@ -113,13 +113,13 @@ def interval_metrics(y, pred):
 
 
 def mean_pinball(y, pred):
+    chosen = [
+        (c, q)
+        for c, q in levels(pred).items()
+        if any(abs(q - target) < 1e-9 for target in metrics.PINBALL_LEVELS)
+    ]
     return float(
-        np.mean(
-            [
-                mean_pinball_loss(y, pred[c].to_numpy(), alpha=q)
-                for c, q in levels(pred).items()
-            ]
-        )
+        np.mean([mean_pinball_loss(y, pred[c].to_numpy(), alpha=q) for c, q in chosen])
     )
 
 
@@ -420,7 +420,7 @@ def plot_shifts(recalibrator):
 def metrics_table(rows):
     header = (
         "<tr><th></th><th>coverage of the 90% interval<br>(target 0.90)</th>"
-        "<th>mean 90% interval width (MW)</th><th>mean pinball loss (all quantiles)</th>"
+        "<th>mean 90% interval width (MW)</th><th>mean pinball loss (5/50/95)</th>"
         "<th>MAPE of the median (%)</th></tr>"
     )
     body = "".join(
@@ -561,7 +561,7 @@ diagonal.</p>
 <h2>Metrics on the test set</h2>
 {metrics}
 <p>Coverage and width are computed with <code>electricity_load_forecasting.metrics.coverage</code> and
-<code>mean_width</code>. The pinball loss (lower is better) is averaged over all the
+<code>mean_width</code>. The pinball loss (lower is better) is averaged over the 5/50/95%
 quantile levels, and the MAPE is that of the median prediction
 (<code>mean_absolute_percentage_error</code>). Recalibration restores the nominal coverage at
 the cost of wider intervals (the honest width for this model); the pinball loss, which rewards

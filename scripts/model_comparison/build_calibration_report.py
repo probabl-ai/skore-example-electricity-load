@@ -148,22 +148,23 @@ def fig_interval(models, horizons, n_bins):
     return fig
 
 
-def fig_by_level(models, horizons, n_bins, method="bins"):
+def fig_by_level(models, horizons, n_bins, method="bins", levels=None):
     """Conditional reliability curves, one panel per quantile.
 
     method="bins": equal-count bins; method="isotonic": PAV step function.
     A perfectly calibrated model lies on the dashed 45 degree diagonal.
+    ``levels`` restricts the panels to those quantile levels.
     """
-    quantiles = sorted(
-        {
-            q
-            for _, df, _ in models
-            for hc in [dg.pred_columns(df)]
-            for h in horizons
-            for q in hc[h]
-        }
-    )
-    n_cols = 4
+    available = {
+        q
+        for _, df, _ in models
+        for hc in [dg.pred_columns(df)]
+        for h in horizons
+        for q in hc[h]
+    }
+    quantiles = sorted(levels) if levels is not None else sorted(available)
+    quantiles = [q for q in quantiles if q in available]
+    n_cols = min(4, len(quantiles)) or 1
     n_rows = -(-len(quantiles) // n_cols)
     fig = make_subplots(
         rows=n_rows,

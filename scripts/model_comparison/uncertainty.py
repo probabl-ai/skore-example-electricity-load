@@ -18,7 +18,8 @@ blocks, 8 seasons), so a t-interval across folds is not used.
 import numpy as np
 from compare_predictions import horizons_of, quantile_levels_of
 
-PINBALL_LEVELS = (0.05, 0.5, 0.95)
+from electricity_load_forecasting.metrics import PINBALL_LEVELS
+
 BLOCK_DAYS = 14
 
 

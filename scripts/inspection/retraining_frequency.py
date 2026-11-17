@@ -19,8 +19,10 @@ import polars as pl
 from plotly.subplots import make_subplots
 from sklearn.metrics import d2_pinball_score
 
+from electricity_load_forecasting.metrics import PINBALL_LEVELS
+
 HORIZONS = (1, 12, 24)
-QUANTILES = (0.05, 0.5, 0.95)
+QUANTILES = PINBALL_LEVELS
 MODEL_ORDER = (
     "chronos2_ctx4000",
     "hgb_mean",
@@ -193,9 +195,7 @@ seasonal effects remain. The final partial week is excluded because it is only
 
 def metrics(df, horizon, has_quantiles):
     y = df[f"{horizon}h"].to_numpy().astype(float)
-    median_column = (
-        f"pred_{horizon}h__q_0.5" if has_quantiles else f"pred_{horizon}h"
-    )
+    median_column = f"pred_{horizon}h__q_0.5" if has_quantiles else f"pred_{horizon}h"
     median = df[median_column].to_numpy().astype(float)
     out = {
         "mape": float(np.mean(np.abs(y - median) / np.abs(y))),
@@ -274,9 +274,7 @@ def main():
             .cast(pl.Int32)
             .alias("bin")
         )
-        has_quantiles = all(
-            f"pred_{h}h__q_0.5" in df.columns for h in HORIZONS
-        )
+        has_quantiles = all(f"pred_{h}h__q_0.5" in df.columns for h in HORIZONS)
 
         # Metrics on the pooled data, per bin and horizon.
         for b in range(n_bins):
@@ -319,9 +317,7 @@ def main():
                 if metric == "mape":
                     row[f"{metric}_worsening_folds"] = int(np.sum(np.array(slopes) > 0))
                 else:
-                    row[f"{metric}_worsening_folds"] = int(
-                        np.sum(np.array(slopes) < 0)
-                    )
+                    row[f"{metric}_worsening_folds"] = int(np.sum(np.array(slopes) < 0))
             slope_rows.append(row)
 
     pooled = pl.DataFrame(pooled_rows)

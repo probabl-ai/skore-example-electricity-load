@@ -13,7 +13,7 @@ series and avoid duplicating the embedded data. For models with quantiles, the
 plot shows the true load, the median prediction as a line, and the outermost
 quantile interval (e.g. 5%-95%) as a shaded band, rather than a separate line
 per quantile. A separate `pareto.html` page compares average MAPE and average
-pinball loss against total fit + predict time.
+pinball loss against total fit + predict time and against predict time only.
 
 With `--operator`, the ENTSO-E day-ahead load forecast (the French TSO's
 operational forecast) is added as an extra 24h-only reference: it appears in
@@ -30,6 +30,8 @@ Writes `<dir>/report.html`, `<dir>/pareto.html` and
 import argparse
 import datetime
 import re
+import subprocess
+import sys
 from html import escape
 from pathlib import Path
 
@@ -55,9 +57,40 @@ from uncertainty import (
 )
 
 from electricity_load_forecasting import data_dir
+from electricity_load_forecasting.metrics import PINBALL_LEVELS
 
 OPERATOR_HORIZON = 24
 OPERATOR_NAME = "operator_day_ahead"
+SHORT_LABELS = {
+    "hgb_mean": "HGB mean",
+    "hgb_mean_fast": "HGB mean fast",
+    "hgb_quantile_q7": "HGB q7",
+    "hgb_quantile_recal_q7": "HGB q7 recal",
+    "hgb_quantile_conformal_q7": "HGB q7 conf",
+    "tabicl_n8_full": "TabICL n8",
+    "tabicl_conformal_n8": "TabICL n8 conf",
+    "tabicl_forecast_ctx1024_n4": "TabICLForecaster",
+    "chronos2_ctx4000": "Chronos-2",
+    "kumo_tabular": "Kumo-Tabular",
+    "kumo_forecast": "KumoForecast",
+}
+SUMMARY_LABELS = {
+    "hgb_mean": "HGB mean",
+    "hgb_mean_fast": "HGB mean fast",
+    "tabicl_n8_full": "TabICL",
+    "tabicl_forecast_ctx1024_n4": "TabICL forecast",
+    "kumo_tabular": "Kumo-Tabular",
+    "kumo_forecast": "KumoForecast",
+    "chronos2_ctx4000": "Chronos-2",
+    "hgb_quantile_q7": "HGB quantile",
+    "hgb_quantile_recal_q7": "HGB quantile recalibrated",
+}
+LABELS = SHORT_LABELS
+
+
+def short_label(name):
+    return LABELS.get(name, name)
+
 
 PRED_COLOR = "#1f77b4"
 
@@ -68,11 +101,38 @@ parser.add_argument(
     action="store_true",
     help="add the ENTSO-E day-ahead forecast as a 24h-only reference",
 )
+parser.add_argument(
+    "--models",
+    help="comma-separated model names to include (default: all in the directory)",
+)
+parser.add_argument(
+    "--summary_labels",
+    action="store_true",
+    help="use the short labels for the publication summary",
+)
+parser.add_argument(
+    "--pareto_only",
+    type=Path,
+    help="write only the Pareto page to this path and exit",
+)
+parser.add_argument("--figure_height", type=int, default=480)
+parser.add_argument("--page_width", type=int, default=1100)
 args = parser.parse_args()
+LABELS = SUMMARY_LABELS if args.summary_labels else SHORT_LABELS
+FIGURE_HEIGHT = args.figure_height
+PAGE_WIDTH = args.page_width
+
 
 paths = sorted(args.dir.glob("*_cv_predictions.parquet"))
 if not paths:
     raise SystemExit(f"no *_cv_predictions.parquet found in {args.dir}")
+if args.models:
+    wanted = {name.strip() for name in args.models.split(",") if name.strip()}
+    present = {p.stem.removesuffix("_cv_predictions") for p in paths}
+    missing = sorted(wanted - present)
+    if missing:
+        raise SystemExit(f"unknown model(s) in --models: {', '.join(missing)}")
+    paths = [p for p in paths if p.stem.removesuffix("_cv_predictions") in wanted]
 frames = {
     p.stem.removesuffix("_cv_predictions"): pl.read_parquet(p).sort("prediction_time")
     for p in paths
@@ -143,11 +203,12 @@ if args.operator:
     table = table_from_results(results)
 
 
-def fit_predict_time_seconds(path):
-    """Total fit + score time over all CV folds for one prediction file.
+def time_breakdown(path):
+    """Fit, score and total time over all CV folds for one prediction file.
 
     Uses the per-fold timings in the sibling scores CSV when available, and
-    falls back to the total printed in the run log for older runs.
+    falls back to the total printed in the run log for older runs (in which
+    case the fit/score split is unknown).
     """
     source = path.resolve()
     stem = path.stem.removesuffix("_cv_predictions")
@@ -160,7 +221,9 @@ def fit_predict_time_seconds(path):
             continue
         scores = pl.read_csv(score_path)
         if {"fit_time", "score_time"} <= set(scores.columns):
-            return float(scores["fit_time"].sum() + scores["score_time"].sum())
+            fit = float(scores["fit_time"].sum())
+            score = float(scores["score_time"].sum())
+            return fit, score, fit + score
     for directory in (source.parent, path.parent):
         log_path = directory / "run.log"
         if log_path.exists():
@@ -168,8 +231,8 @@ def fit_predict_time_seconds(path):
                 r":\s*([\d.]+)s total", log_path.read_text(errors="replace")
             )
             if matches:
-                return float(matches[-1])
-    return None
+                return None, None, float(matches[-1])
+    return None, None, None
 
 
 def average_pinball_loss(df):
@@ -177,7 +240,7 @@ def average_pinball_loss(df):
     hs = horizons_of(df)
     levels = quantile_levels_of(df, hs[0])
     chosen = [
-        q for q in levels if any(abs(q - target) < 1e-9 for target in (0.05, 0.5, 0.95))
+        q for q in levels if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
     ]
     if not chosen:
         chosen = levels
@@ -206,8 +269,7 @@ fold_pinball = {}
 for name, df in frames.items():
     splits = sorted(df["split"].unique().to_list())
     values = [
-        average_pinball_loss(df.filter(pl.col("split") == split))
-        for split in splits
+        average_pinball_loss(df.filter(pl.col("split") == split)) for split in splits
     ]
     fold_pinball[name] = (
         None if any(value is None for value in values) else np.array(values)
@@ -291,9 +353,7 @@ def bars_figure(fold_scores):
                     name=f"{h}h",
                     showlegend=i == 0,
                     hovertemplate=(
-                        "%{y}<br>"
-                        + f"{h}h " + label
-                        + ": %{x:.3g}<extra></extra>"
+                        "%{y}<br>" + f"{h}h " + label + ": %{x:.3g}<extra></extra>"
                     ),
                 ),
                 row=row,
@@ -332,7 +392,9 @@ def differences_figure():
     for i, (kind, q, label) in enumerate(DIFF_METRICS):
         row, col = divmod(i, 2)
         row, col = row + 1, col + 1
-        baseline = baseline_name("mae__{h}h" if kind in ("mae", "mape") else "d2_pinball_score__{h}h__q_0.5")
+        baseline = baseline_name(
+            "mae__{h}h" if kind in ("mae", "mape") else "d2_pinball_score__{h}h__q_0.5"
+        )
         if baseline is None:
             continue
         data = {}
@@ -369,7 +431,9 @@ def differences_figure():
                     continue
                 folds = data[name][h]["folds"]
                 fold_x += list(folds)
-                fold_y += [k + offset + (f - len(folds) / 2) * 0.012 for f in range(len(folds))]
+                fold_y += [
+                    k + offset + (f - len(folds) / 2) * 0.012 for f in range(len(folds))
+                ]
                 fold_text += [f"{name}, {h}h, fold {f}" for f in range(len(folds))]
             fig.add_trace(
                 go.Scatter(
@@ -521,19 +585,21 @@ def coverage_width_figure(fold_scores):
     )
     return fig
 
+
 pareto_records = []
 for path in paths:
     name = path.stem.removesuffix("_cv_predictions")
     mape_values = 100 * fold_scores[name]["mape__average"]
     pinball_values = fold_pinball[name]
+    fit_time, score_time, total_time = time_breakdown(path)
     records = {
         "name": name,
-        "time": fit_predict_time_seconds(path),
+        "fit_time": fit_time,
+        "score_time": score_time,
+        "time": total_time,
         "mape": float(np.mean(mape_values)),
         "mape_std": float(np.std(mape_values, ddof=1)),
-        "pinball": (
-            None if pinball_values is None else float(np.mean(pinball_values))
-        ),
+        "pinball": (None if pinball_values is None else float(np.mean(pinball_values))),
         "pinball_std": (
             None if pinball_values is None else float(np.std(pinball_values, ddof=1))
         ),
@@ -549,43 +615,60 @@ if missing_times:
     print("warning: no fit+predict time for", ", ".join(missing_times))
 
 
-def pareto_frontier(records, metric):
-    """Points not dominated on (lower time, lower metric)."""
+def pareto_frontier(records, metric, x_field="time"):
+    """Points not dominated on (lower x_field, lower metric)."""
     frontier, best = [], float("inf")
-    for record in sorted(records, key=lambda r: (r["time"], r[metric])):
+    for record in sorted(records, key=lambda r: (r[x_field], r[metric])):
         if record[metric] < best:
             frontier.append(record)
             best = record[metric]
     return frontier
 
 
-def pareto_figure(records, metric, title, y_title, hover_format):
-    data = [r for r in records if r["time"] is not None and r[metric] is not None]
+def alternating_text_positions(data, x_field, metric):
+    """Alternate labels above/below points, ordered by cost then metric."""
+    positions = ["top center"] * len(data)
+    order = sorted(range(len(data)), key=lambda i: (data[i][x_field], data[i][metric]))
+    for rank, i in enumerate(order):
+        positions[i] = "top center" if rank % 2 == 0 else "bottom center"
+    return positions
+
+
+def pareto_figure(
+    records,
+    metric,
+    title,
+    y_title,
+    hover_format,
+    x_field="time",
+    x_title="Fit + predict time (s, log scale)<br>(sum over all folds)",
+):
+    data = [r for r in records if r[x_field] is not None and r[metric] is not None]
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=[r["time"] for r in data],
+            x=[r[x_field] for r in data],
             y=[r[metric] for r in data],
             mode="markers+text",
-            text=[r["name"] for r in data],
-            textposition="top center",
+            text=[short_label(r["name"]) for r in data],
+            textposition=alternating_text_positions(data, x_field, metric),
             textfont={"size": 12},
             cliponaxis=False,
             marker={"size": 10, "color": "#1f77b4"},
             customdata=[[r["name"]] for r in data],
             hovertemplate=(
-                "%{customdata[0]}<br>fit + predict: %{x:,.0f} s<br>"
+                "%{customdata[0]}<br>cost: %{x:,.0f} s<br>"
                 + hover_format
                 + "<extra></extra>"
             ),
             name="models",
         )
     )
-    frontier = pareto_frontier(data, metric)
+    frontier = pareto_frontier(data, metric, x_field)
     if len(frontier) > 1:
         fig.add_trace(
             go.Scatter(
-                x=[r["time"] for r in frontier],
+                x=[r[x_field] for r in frontier],
                 y=[r[metric] for r in frontier],
                 mode="lines+markers",
                 line={"color": "#d62728", "dash": "dash"},
@@ -596,29 +679,37 @@ def pareto_figure(records, metric, title, y_title, hover_format):
         )
     fig.update_xaxes(
         type="log",
-        title_text="Fit + predict time (s, log scale)",
+        title_text=x_title,
     )
     fig.update_yaxes(title_text=y_title)
     fig.update_layout(
         title=title,
-        height=480,
+        height=FIGURE_HEIGHT,
         margin={"t": 85, "b": 65, "l": 80, "r": 120},
     )
     return fig
 
 
-def pareto_difference_figure(records, metric, baseline, title, metric_label):
+def pareto_difference_figure(
+    records,
+    metric,
+    baseline,
+    title,
+    metric_label,
+    x_field="time",
+    x_title="Fit + predict time (s, log scale)<br>(sum over all folds)",
+):
     baseline_record = next((r for r in records if r["name"] == baseline), None)
     if baseline_record is None or baseline_record[f"{metric}_rows"] is None:
         return None
     data = []
     for r in records:
-        if r["time"] is None or r[f"{metric}_rows"] is None:
+        if r[x_field] is None or r[f"{metric}_rows"] is None:
             continue
         data.append(
             {
                 "name": r["name"],
-                "time": r["time"],
+                x_field: r[x_field],
                 "baseline": r["name"] == baseline,
                 **paired_difference(
                     r[f"{metric}_rows"], baseline_record[f"{metric}_rows"], DAY, FOLD
@@ -631,11 +722,17 @@ def pareto_difference_figure(records, metric, baseline, title, metric_label):
     # one dot per fold, jittered horizontally (the time axis is logarithmic)
     fig.add_trace(
         go.Scatter(
-            x=[r["time"] * (1 + 0.015 * (f - 3.5)) for r in data for f in range(len(r["folds"]))],
+            x=[
+                r[x_field] * (1 + 0.015 * (f - 3.5))
+                for r in data
+                for f in range(len(r["folds"]))
+            ],
             y=[v for r in data for v in r["folds"]],
             mode="markers",
             marker={"size": 4, "color": "#1f77b4", "opacity": 0.45},
-            text=[f"{r['name']}, fold {f}" for r in data for f in range(len(r["folds"]))],
+            text=[
+                f"{r['name']}, fold {f}" for r in data for f in range(len(r["folds"]))
+            ],
             hovertemplate="%{text}: %{y:+.3g}<extra></extra>",
             name="per-fold differences",
         )
@@ -643,14 +740,16 @@ def pareto_difference_figure(records, metric, baseline, title, metric_label):
     above, below = zip(*(error_bar(r) for r in data))
     fig.add_trace(
         go.Scatter(
-            x=[r["time"] for r in data],
+            x=[r[x_field] for r in data],
             y=[r["mean"] for r in data],
             mode="markers+text",
             text=[
-                f"{r['name']} (baseline)" if r["baseline"] else r["name"]
+                f"{short_label(r['name'])} (baseline)"
+                if r["baseline"]
+                else short_label(r["name"])
                 for r in data
             ],
-            textposition="top center",
+            textposition=alternating_text_positions(data, x_field, "mean"),
             textfont={"size": 12},
             cliponaxis=False,
             marker={
@@ -673,7 +772,7 @@ def pareto_difference_figure(records, metric, baseline, title, metric_label):
                 "width": 4,
             },
             hovertemplate=(
-                "%{customdata[0]}<br>fit + predict: %{x:,.0f} s<br>"
+                "%{customdata[0]}<br>cost: %{x:,.0f} s<br>"
                 + metric_label
                 + " difference: %{y:+.3g}<br>"
                 "95% block bootstrap: [%{customdata[1]:+.3g}, %{customdata[2]:+.3g}]<br>"
@@ -683,11 +782,11 @@ def pareto_difference_figure(records, metric, baseline, title, metric_label):
             name="models (pooled mean)",
         )
     )
-    frontier = pareto_frontier(data, "mean")
+    frontier = pareto_frontier(data, "mean", x_field)
     if len(frontier) > 1:
         fig.add_trace(
             go.Scatter(
-                x=[r["time"] for r in frontier],
+                x=[r[x_field] for r in frontier],
                 y=[r["mean"] for r in frontier],
                 mode="lines+markers",
                 line={"color": "#d62728", "dash": "dash"},
@@ -696,13 +795,13 @@ def pareto_difference_figure(records, metric, baseline, title, metric_label):
                 hoverinfo="skip",
             )
         )
-    fig.update_xaxes(type="log", title_text="Fit + predict time (s, log scale)")
+    fig.update_xaxes(type="log", title_text=x_title)
     fig.update_yaxes(
-        title_text=f"Δ {metric_label} vs {baseline} (lower is better)"
+        title_text=f"Δ {metric_label} vs {short_label(baseline)} (lower is better)"
     )
     fig.update_layout(
         title=title,
-        height=480,
+        height=FIGURE_HEIGHT,
         margin={"t": 85, "b": 65, "l": 80, "r": 120},
     )
     return fig
@@ -711,59 +810,114 @@ def pareto_difference_figure(records, metric, baseline, title, metric_label):
 def write_pareto_page(path, records):
     mape_baseline = baseline_name("mae__{h}h")
     pinball_baseline = baseline_name("d2_pinball_score__{h}h__q_0.5")
-    difference_figures = [
-        pareto_difference_figure(
-            records,
-            "mape",
-            mape_baseline,
-            "MAPE difference vs fit + predict time",
-            "MAPE (%)",
-        ),
-        pareto_difference_figure(
-            records,
-            "pinball",
-            pinball_baseline,
-            "Pinball loss difference vs fit + predict time",
-            "pinball loss (MW)",
-        ),
-    ]
+
+    def difference_figures_for(x_field, x_title, suffix):
+        return [
+            pareto_difference_figure(
+                records,
+                "mape",
+                mape_baseline,
+                f"MAPE difference vs {suffix}",
+                "MAPE (%)",
+                x_field=x_field,
+                x_title=x_title,
+            ),
+            pareto_difference_figure(
+                records,
+                "pinball",
+                pinball_baseline,
+                f"Pinball loss difference vs {suffix}",
+                "pinball loss (MW)",
+                x_field=x_field,
+                x_title=x_title,
+            ),
+        ]
+
+    difference_figures = difference_figures_for(
+        "time",
+        "Fit + predict time (s, log scale)<br>(sum over all folds)",
+        "fit + predict time",
+    )
     difference_figures = [fig for fig in difference_figures if fig is not None]
-    figures = [
-        pareto_figure(
-            records,
-            "mape",
-            "Average MAPE vs fit + predict time",
-            "Average MAPE (%, lower is better)",
-            "MAPE: %{y:.3f}%",
-        ),
-        pareto_figure(
-            records,
-            "pinball",
-            "Average pinball loss vs fit + predict time",
-            "Average pinball loss (MW, lower is better)",
-            "pinball loss: %{y:.2f} MW",
-        ),
+    predict_difference_figures = difference_figures_for(
+        "score_time",
+        "Predict time only (s, log scale)<br>(sum over all folds)",
+        "predict time only",
+    )
+    predict_difference_figures = [
+        fig for fig in predict_difference_figures if fig is not None
     ]
+
+    def absolute_figures(x_field, x_title, suffix):
+        return [
+            pareto_figure(
+                records,
+                "mape",
+                f"Average MAPE vs {suffix}",
+                "Average MAPE (%, lower is better)",
+                "MAPE: %{y:.3f}%",
+                x_field=x_field,
+                x_title=x_title,
+            ),
+            pareto_figure(
+                records,
+                "pinball",
+                f"Average pinball loss vs {suffix}",
+                "Average pinball loss (MW, lower is better)",
+                "pinball loss: %{y:.2f} MW",
+                x_field=x_field,
+                x_title=x_title,
+            ),
+        ]
+
+    total_figures = absolute_figures(
+        "time",
+        "Fit + predict time (s, log scale)<br>(sum over all folds)",
+        "fit + predict time",
+    )
+    predict_figures = absolute_figures(
+        "score_time",
+        "Predict time only (s, log scale)<br>(sum over all folds)",
+        "predict time only",
+    )
+    has_difference = bool(difference_figures)
+    has_predict_difference = bool(predict_difference_figures)
     difference_parts = "".join(
         f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=i == 0, config={"responsive": True, "displaylogo": False})}</div>'
         for i, fig in enumerate(difference_figures)
     )
-    absolute_parts = "".join(
-        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=not difference_figures and i == 0, config={"responsive": True, "displaylogo": False})}</div>'
-        for i, fig in enumerate(figures)
+    predict_difference_parts = "".join(
+        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=not has_difference and i == 0, config={"responsive": True, "displaylogo": False})}</div>'
+        for i, fig in enumerate(predict_difference_figures)
     )
+    total_parts = "".join(
+        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=not has_difference and not has_predict_difference and i == 0, config={"responsive": True, "displaylogo": False})}</div>'
+        for i, fig in enumerate(total_figures)
+    )
+    predict_parts = "".join(
+        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=False, config={"responsive": True, "displaylogo": False})}</div>'
+        for fig in predict_figures
+    )
+
+    def fmt_time(value):
+        return "-" if value is None else f"{value:,.0f}"
+
     table_rows = "".join(
         "<tr>"
-        f"<td>{escape(r['name'])}</td>"
-        f"<td>{r['time']:,.0f}</td>"
+        f"<td>{escape(short_label(r['name']))}</td>"
+        f"<td>{fmt_time(r['fit_time'])}</td>"
+        f"<td>{fmt_time(r['score_time'])}</td>"
+        f"<td>{fmt_time(r['time'])}</td>"
         f"<td>{r['mape']:.3f}</td>"
         f"<td>{r['pinball']:.2f}</td>"
         "</tr>"
         if r["pinball"] is not None
         else (
             "<tr>"
-            f"<td>{escape(r['name'])}</td>"
-            f"<td>{r['time']:,.0f}</td>"
+            f"<td>{escape(short_label(r['name']))}</td>"
+            f"<td>{fmt_time(r['fit_time'])}</td>"
+            f"<td>{fmt_time(r['score_time'])}</td>"
+            f"<td>{fmt_time(r['time'])}</td>"
             f"<td>{r['mape']:.3f}</td>"
             "<td>-</td>"
             "</tr>"
@@ -777,9 +931,9 @@ def write_pareto_page(path, records):
 <html>
 <head>
 <meta charset="utf-8">
-<title>Pareto plots: accuracy vs fit + predict time</title>
+<title>Pareto plots: accuracy vs total and predict time</title>
 <style>
-body {{ font-family: sans-serif; max-width: 1100px; margin: 2em auto; padding: 0 1em; }}
+body {{ font-family: sans-serif; max-width: {PAGE_WIDTH}px; margin: 2em auto; padding: 0 1em; }}
 table {{ border-collapse: collapse; margin-bottom: 1.5em; }}
 th, td {{ border-bottom: 1px solid #ddd; padding: 0.4em 0.8em; text-align: right; }}
 th:first-child, td:first-child {{ text-align: left; }}
@@ -788,38 +942,50 @@ th:first-child, td:first-child {{ text-align: left; }}
 </style>
 </head>
 <body>
-<h1>Pareto plots: accuracy vs fit + predict time</h1>
-<p class="note">Times are summed over the 8 CV folds (fit + predict/score).
-They come from per-fold timings in the scores CSV when available, otherwise
-from the run log. Hardware and parallel load differ across runs (CPU vs GPU), so
-times are indicative rather than a controlled benchmark. The horizontal axis is
-log-scaled. MAPE uses the median prediction. Pinball loss is averaged over the
-5%, 50% and 95% quantiles and all horizons; models without quantiles are omitted
-from the pinball figure. Lower is better on both axes. Table values are means
-across the 8 folds.</p>
+<h1>Pareto plots: accuracy vs total and predict time</h1>
+<p class="note">Times are summed over the 8 CV folds. The first absolute plots
+use fit + predict (total run cost); the second set uses predict/score only (the
+deployment/inference view). They come from per-fold timings in the scores CSV
+when available, otherwise from the run log. Hardware and parallel load differ
+across runs (CPU vs GPU), so times are indicative rather than a controlled
+benchmark. The horizontal axis is log-scaled. MAPE uses the median prediction.
+Pinball loss is averaged over the 5%, 50% and 95% quantiles and all horizons;
+models without quantiles are omitted from the pinball figure. Lower is better on
+both axes. Table values are means across the 8 folds.</p>
 <table>
-<thead><tr><th>model</th><th>fit + predict (s)</th><th>MAPE (%)</th><th>pinball loss (MW)</th></tr></thead>
+<thead><tr><th>model</th><th>fit (s)</th><th>predict (s)</th><th>total (s)</th><th>MAPE (%)</th><th>pinball loss (MW)</th></tr></thead>
 <tbody>{table_rows}</tbody>
 </table>
-<h2>Paired differences vs baseline</h2>
-<p class="note">MAPE is relative to <code>{escape(str(mape_baseline))}</code>;
-pinball loss is relative to <code>{escape(str(pinball_baseline))}</code>.
+<h2>Paired differences vs baseline (fit + predict time)</h2>
+<p class="note">MAPE is relative to <code>{escape(str(short_label(mape_baseline)))}</code>;
+pinball loss is relative to <code>{escape(str(short_label(pinball_baseline)))}</code>.
 The baseline is shown at zero difference. {INTERVAL_NOTE} Dashed colored lines
 mark the Pareto frontiers.</p>
 {difference_parts}
+<h2>Paired differences vs baseline (predict time only)</h2>
+<p class="note">Same paired differences, with the horizontal axis showing
+predict/score time only. Models whose scores CSV has no timing split are
+omitted. {INTERVAL_NOTE} Dashed colored lines mark the Pareto frontiers.</p>
+{predict_difference_parts}
 <h2>Absolute accuracy vs fit + predict time</h2>
 <p class="note">Means across the 8 CV folds, shown without error bars. Dashed
 colored lines mark the Pareto frontiers.</p>
-{absolute_parts}
+{total_parts}
+<h2>Absolute accuracy vs predict time only</h2>
+<p class="note">Same metrics, using predict/score time only. Models whose scores
+CSV has no timing split are omitted. Dashed colored lines mark the Pareto
+frontiers.</p>
+{predict_parts}
 </body>
 </html>
 """
     path.write_text(page, "utf-8")
 
+
 def keep_metric(metric):
     """Only show the 5/50/95% pinball scores and the 90% interval coverage."""
     if "__q_" in metric:
-        return float(metric.rsplit("__q_", 1)[1]) in {0.05, 0.5, 0.95}
+        return float(metric.rsplit("__q_", 1)[1]) in PINBALL_LEVELS
     if metric.startswith(("coverage_", "width_")):
         return metric.startswith(("coverage_90__", "width_90__"))
     return True
@@ -1065,6 +1231,38 @@ model to hide it.</p>
     path.write_text(page, "utf-8")
 
 
+if args.pareto_only is not None:
+    args.pareto_only.parent.mkdir(parents=True, exist_ok=True)
+    write_pareto_page(args.pareto_only, pareto_records)
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+        dirty = subprocess.check_output(
+            ["git", "status", "--porcelain"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        commit, dirty = "unknown", ""
+    provenance = f"""# Summary Pareto page
+
+Generated by `scripts/model_comparison/build_cv_report.py` in
+`--pareto_only` mode.
+
+- command: `python {" ".join(sys.argv)}` (run from the repository root)
+- date: {datetime.datetime.now().isoformat(timespec="seconds")}
+- git commit: `{commit}` ({"clean" if not dirty else "dirty (see git status)"})
+- input directory: `{args.dir.resolve()}`
+- weather: safe-lead forecast (this directory), oracle not used
+- models: {", ".join(sorted(r["name"] for r in pareto_records))}
+- summary labels: {args.summary_labels}
+- figure height: {args.figure_height}px; page width: {args.page_width}px
+- metrics: MAPE and pinball (mean over q0.05/q0.5/q0.95 and horizons) vs
+  fit+predict and predict-only time; paired differences vs the HGB baseline
+- no model was re-run; derived from `*_cv_predictions.parquet`
+"""
+    (args.pareto_only.parent / "pareto.md").write_text(provenance, "utf-8")
+    raise SystemExit(0)
+
 plots_dir = args.dir / "plots"
 plots_dir.mkdir(exist_ok=True)
 
@@ -1087,7 +1285,7 @@ pareto_path = args.dir / "pareto.html"
 write_pareto_page(pareto_path, pareto_records)
 pareto_link = (
     '<p><a href="pareto.html">Pareto plots: average MAPE and pinball loss vs '
-    "fit + predict time</a></p>"
+    "total and predict time</a></p>"
 )
 
 table_js = """<script>

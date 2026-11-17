@@ -78,8 +78,19 @@ python scripts/model_comparison/build_calibration_report.py results/model_compar
 python scripts/model_comparison/plot_cv_comparison.py results/model_comparison/my_study
 ```
 
-- `build_cv_report.py` writes a metrics table and one true-vs-predicted plot per
-  model/horizon.
+- `build_cv_report.py` writes a metrics table, one true-vs-predicted plot per
+  model/horizon, and a `pareto.html` page with accuracy vs total and predict
+  time. `--models a,b,...` restricts the page to those models,
+  `--summary_labels` uses the short publication labels, and
+  `--pareto_only PATH` writes only the Pareto page (with `--figure_height` /
+  `--page_width`). The curated summary page is built with:
+  ```bash
+  python scripts/model_comparison/build_cv_report.py \
+      results/model_comparison/cv_comparison_forecast \
+      --models hgb_mean,hgb_mean_fast,tabicl_n8_full,tabicl_forecast_ctx1024_n4,kumo_tabular,kumo_forecast,chronos2_ctx4000,hgb_quantile_q7,hgb_quantile_recal_q7 \
+      --summary_labels --pareto_only results/model_comparison/summary/pareto.html \
+      --figure_height 700 --page_width 1600
+  ```
 - `build_calibration_report.py` adds coverage, conditional coverage and
   reliability diagrams for all quantile models.
 - `plot_cv_comparison.py` overlays all models on one plot per horizon.
@@ -87,6 +98,20 @@ python scripts/model_comparison/plot_cv_comparison.py results/model_comparison/m
   saved parquet files.
 - `build_combined_pareto.py` and `build_weather_impact_report.py` build the
   oracle vs forecast weather pages (`results/weather_impact/report/`).
+- `build_summary_figures.py` writes four static SVG summary figures to
+  `results/model_comparison/summary/figures/`: paired MAPE/pinball differences vs
+  baseline against fit + predict and predict-only time, the binned 90% interval
+  coverage from the calibration summary, and true-vs-predicted 24h load for five
+  models over the first two weeks of April 2025, ordered by whole-dataset MAPE.
+- `build_summary_calibration.py` writes a separate
+  `results/model_comparison/summary/calibration.html` page with binned interval
+  coverage and binned reliability at 5/50/95 for the forecast-weather summary
+  models. Point-only models are skipped.
+- `build_coverage_report.py` writes a separate
+  `results/model_comparison/summary/coverage.html` page from the forecast-weather
+  run only. It flags models missing the nominal 90% interval coverage target per
+  horizon (0.5 pp tolerance by default), alongside the pinball Pareto and a
+  12h/24h coverage panel. It does not modify `pareto.html`.
 - `uncertainty.py` is the shared helper for paired differences between models,
   used by the three report scripts above. For two models on identical rows it
   gives the per-fold mean differences (one dot per fold in the plots) and a 95%
