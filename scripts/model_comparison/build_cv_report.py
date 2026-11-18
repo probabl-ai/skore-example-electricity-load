@@ -73,6 +73,7 @@ SHORT_LABELS = {
     "chronos2_ctx4000": "Chronos-2",
     "kumo_tabular": "Kumo-Tabular",
     "kumo_forecast": "KumoForecast",
+    "t0_gamma": "t0-gamma",
 }
 SUMMARY_LABELS = {
     "hgb_mean": "HGB mean",
@@ -84,6 +85,7 @@ SUMMARY_LABELS = {
     "chronos2_ctx4000": "Chronos-2",
     "hgb_quantile_q7": "HGB quantile",
     "hgb_quantile_recal_q7": "HGB quantile recalibrated",
+    "t0_gamma": "t0-gamma",
 }
 LABELS = SHORT_LABELS
 

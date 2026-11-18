@@ -1,8 +1,8 @@
 """
 Walk-forward cross-validation for one pipeline (hgb_mean, hgb_quantile,
 hgb_quantile_recal, hgb_quantile_conformal, tabicl, tabicl_recal,
-tabicl_conformal, kumo_tabular, kumo_tabular_recal, chronos2, kumo_forecast or
-tabicl_forecast), using the same strategy as `cross_validate.py` (`elf.cross_val_predict`, no skore): iterate over all
+tabicl_conformal, kumo_tabular, kumo_tabular_recal, chronos2, kumo_forecast,
+tabicl_forecast or t0_gamma), using the same strategy as `cross_validate.py` (`elf.cross_val_predict`, no skore): iterate over all
 `electricity_load_forecasting.splitter.TimeSeriesSplitter` folds, fit on train,
 predict and score on test, concatenate across folds.
 
@@ -44,6 +44,9 @@ Run from the repository root:
     python scripts/model_comparison/cross_validate_models.py \
         --model tabicl_forecast --device cuda \
         --output_dir results/model_comparison/my_study
+    python scripts/model_comparison/cross_validate_models.py \
+        --model t0_gamma --device cuda \
+        --output_dir results/model_comparison/my_study
 
 Use `--reports` to also write the skrub fit/predict/single-date reports.
 Weather defaults to the safe-lead historical forecasts (`--weather forecast`):
@@ -60,6 +63,14 @@ the simpler `calibration.ConformalRecalibrator` (same inner CV, but one global
 shift per quantile level, no binning or spline); `tabicl_conformal` is the same
 for TabICL. `--max_iter` applies to the
 HGB models only (ignored by tabicl/chronos2).
+
+`t0_gamma` is the `theforecastingcompany/t0-gamma` foundation model from The
+Forecasting Company (`tfc-t0` package), a zero-shot quantile forecaster that
+conditions on known-future weather/calendar covariates, like the Chronos
+pipeline. It uses the recommended inference-time adjustments
+(`trim_leading_missing`, `symmetric_averaging`, `clip_nonnegative`,
+`snap_integers`); `symmetric_averaging` runs the model twice. `--device` and
+`--dtype` apply to it, as does `--context_hours`.
 
 All pipelines share the horizons (1, 12, 24), the environment
 (`elf.get_env()`), and
@@ -93,6 +104,7 @@ parser.add_argument(
         "chronos2",
         "kumo_forecast",
         "tabicl_forecast",
+        "t0_gamma",
     ],
     required=True,
 )
@@ -139,6 +151,8 @@ parser.add_argument("--kumo_no_cross_channel", action="store_true")
 parser.add_argument("--tabicl_context_hours", type=int, default=4096)
 parser.add_argument("--tabicl_chunk_size", type=int, default=8)
 parser.add_argument("--tabicl_n_estimators", type=int, default=8)
+# t0-specific
+parser.add_argument("--t0_chunk_size", type=int, default=64)
 parser.add_argument(
     "--tabicl_point_estimate",
     choices=["mean", "median"],
@@ -284,6 +298,21 @@ elif args.model == "tabicl_forecast":
         calendar=not args.no_calendar,
         tabicl_config=tabicl_config,
         point_estimate=args.tabicl_point_estimate,
+    )
+elif args.model == "t0_gamma":
+    from electricity_load_forecasting import t0 as t0mod
+
+    forecaster = t0mod.T0Forecaster(device=args.device, dtype=args.dtype)
+    pred = t0mod.make_t0_data_op(
+        horizons=HORIZONS,
+        forecaster=forecaster,
+        quantiles=args.quantiles,
+        context_hours=args.context_hours,
+        cities=() if args.no_weather else "all",
+        temperature_only=True,
+        calendar=not args.no_calendar,
+        chunk_size=args.t0_chunk_size,
+        verbose=True,
     )
 
 env = elf.get_env()

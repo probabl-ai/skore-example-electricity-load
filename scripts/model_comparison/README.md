@@ -3,8 +3,8 @@
 Scripts for running and comparing walk-forward CV predictions from several
 model families on the same folds: `hgb_mean`, `hgb_quantile`,
 `hgb_quantile_recal`, `hgb_quantile_conformal`, `tabicl`, `tabicl_recal`,
-`tabicl_conformal`, `kumo_tabular`, `kumo_tabular_recal`, `chronos2`, `kumo_forecast` and
-`tabicl_forecast`.
+`tabicl_conformal`, `kumo_tabular`, `kumo_tabular_recal`, `chronos2`, `kumo_forecast`,
+`tabicl_forecast` and `t0_gamma`.
 
 Run them from the repository root. A typical study directory is
 `results/model_comparison/<study-name>/`.
@@ -32,6 +32,8 @@ python scripts/model_comparison/cross_validate_models.py \
     --model chronos2 --device cuda --output_dir results/model_comparison/my_study
 python scripts/model_comparison/cross_validate_models.py \
     --model tabicl_forecast --device cuda --output_dir results/model_comparison/my_study
+python scripts/model_comparison/cross_validate_models.py \
+    --model t0_gamma --device cuda --output_dir results/model_comparison/my_study
 ```
 
 `tabicl_forecast` uses `tabicl.TabICLForecaster` (the time-series interface,
@@ -41,6 +43,15 @@ pipeline, and returns 5/50/95% quantiles by default. Its `--tabicl_context_hours
 (default 4096) and `--tabicl_n_estimators` (default 8) control the context
 window and ensemble size. It fits one TabICL regressor per forecast origin, so
 it is much slower than the tabular `tabicl` model and should be run on a GPU.
+
+`t0_gamma` is the `theforecastingcompany/t0-gamma` foundation model from The
+Forecasting Company (`tfc-t0` package, install with `tfc-t0[torch]>=0.6.0`). It
+is a zero-shot quantile forecaster that conditions on known-future
+weather/calendar covariates, like the Chronos pipeline, and returns 5/50/95%
+quantiles by default. It uses the recommended inference-time adjustments
+(`trim_leading_missing`, `symmetric_averaging`, `clip_nonnegative`,
+`snap_integers`); `symmetric_averaging` runs the model twice. `--device`,
+`--dtype` and `--context_hours` apply to it.
 
 Weather defaults to the safe-lead historical forecasts (`--weather forecast`):
 day1 for horizons <=18h and day2 above. `--weather oracle` is meant to select the
