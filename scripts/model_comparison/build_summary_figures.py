@@ -31,6 +31,7 @@ import polars as pl
 from matplotlib.lines import Line2D
 from matplotlib.offsetbox import AnnotationBbox, HPacker, TextArea
 from matplotlib.patches import Patch
+from model_registry import model_colour
 from sklearn.metrics import mean_absolute_percentage_error, mean_pinball_loss
 from uncertainty import average_row_loss, paired_difference, row_index
 
@@ -68,15 +69,6 @@ CALIBRATION_ORDER = [
     "kumo_tabular",
     "chronos2_ctx4000",
     "t0_gamma",
-]
-PALETTE = [
-    "#0072B2",
-    "#E69F00",
-    "#009E73",
-    "#CC79A7",
-    "#56B4E9",
-    "#D55E00",
-    "#F0E442",
 ]
 BLUE = "#1f77b4"
 GREY = "#777777"
@@ -318,7 +310,7 @@ def plot_calibration_coverage(records, n_bins, out):
                 marker="o",
                 ms=4,
                 lw=1.3,
-                color=PALETTE[index],
+                color=model_colour(name),
                 label=record["label"],
             )
         ax.set_title(f"{horizon}h horizon")
@@ -374,7 +366,7 @@ def plot_coverage_width(records, out):
             ax.scatter(
                 coverage,
                 width,
-                color=PALETTE[index],
+                color=model_colour(name),
                 s=40,
                 edgecolor=TEXT,
                 linewidth=0.5,

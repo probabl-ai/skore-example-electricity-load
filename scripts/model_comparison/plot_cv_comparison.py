@@ -24,6 +24,7 @@ from pathlib import Path
 
 import polars as pl
 from compare_predictions import horizons_of, quantile_levels_of
+from model_registry import canonical_order, model_colour
 
 import electricity_load_forecasting as elf
 
@@ -35,6 +36,7 @@ paths = sorted(args.dir.glob("*_cv_predictions.parquet"))
 if not paths:
     raise SystemExit(f"no *_cv_predictions.parquet found in {args.dir}")
 frames = {p.stem.removesuffix("_cv_predictions"): pl.read_parquet(p) for p in paths}
+frames = {name: frames[name] for name in canonical_order(frames)}
 
 horizons = sorted({h for df in frames.values() for h in horizons_of(df)})
 
@@ -63,7 +65,18 @@ output_dir = args.dir / "plots"
 output_dir.mkdir(exist_ok=True)
 for h in horizons:
     fig = elf.plot_predictions(combined, horizons=(h,), start=None)
-    fig.update_layout(title=f"{h}h horizon: true vs predicted ({', '.join(frames)})")
+    for trace in fig.data:
+        name = trace.name
+        if name == "true_load_mw":
+            trace.line.color = "gray"
+            continue
+        model = next((m for m in frames if name.startswith(f"pred_{h}h_{m}")), name)
+        trace.name = model
+        trace.line.color = model_colour(model)
+    fig.update_layout(
+        title=f"{h}h horizon: true vs predicted ({', '.join(frames)})",
+        legend_traceorder="normal",
+    )
     out = output_dir / f"{h}h_comparison.html"
     fig.write_html(out)
     print("wrote", out)

@@ -17,7 +17,8 @@ import sys
 from pathlib import Path
 
 import polars as pl
-from build_calibration_report import PALETTE, check_horizons, fig_by_level, fig_interval
+from build_calibration_report import check_horizons, fig_by_level, fig_interval
+from model_registry import model_colour
 
 from electricity_load_forecasting import diagnostics as dg
 from electricity_load_forecasting.metrics import PINBALL_LEVELS
@@ -44,7 +45,7 @@ def load_models(directory, wanted):
         if not dg.pred_columns(df):
             print(f"skipping {name}: no quantile predictions")
             continue
-        models.append((MODELS.get(name, name), df, PALETTE[len(models) % len(PALETTE)]))
+        models.append((MODELS.get(name, name), df, model_colour(name)))
     if not models:
         raise SystemExit("no quantile models to plot")
     return models

@@ -45,6 +45,7 @@ from compare_predictions import (
     quantile_levels_of,
     table_from_results,
 )
+from model_registry import canonical_order, model_colour
 from plotly.subplots import make_subplots
 from sklearn.metrics import mean_pinball_loss
 from uncertainty import (
@@ -139,6 +140,8 @@ frames = {
     p.stem.removesuffix("_cv_predictions"): pl.read_parquet(p).sort("prediction_time")
     for p in paths
 }
+frames = {name: frames[name] for name in canonical_order(frames)}
+MODEL_COLORS = {name: model_colour(name, i) for i, name in enumerate(frames)}
 _first = next(iter(frames.values()))
 for _name, _df in frames.items():
     if not _df.select("prediction_time", "split").equals(
@@ -341,10 +344,7 @@ def bars_figure(fold_scores):
             }
             if values:
                 data[name] = values
-        models = sorted(
-            data,
-            key=lambda name: float(np.mean(list(data[name].values()))),
-        )
+        models = canonical_order(data)
         for h in horizons:
             fig.add_trace(
                 go.Bar(
@@ -414,12 +414,7 @@ def differences_figure():
                 summaries[h] = paired_difference(losses, base, DAY, FOLD)
             if summaries:
                 data[name] = summaries
-        models = sorted(
-            data,
-            key=lambda name: float(
-                np.mean([value["mean"] for value in data[name].values()])
-            ),
-        )
+        models = canonical_order(data)
         for j, h in enumerate(horizons):
             active = [name for name in models if h in data[name]]
             if not active:
@@ -554,7 +549,10 @@ def coverage_width_figure(fold_scores):
                 textposition="top center",
                 textfont={"size": 11},
                 cliponaxis=False,
-                marker={"size": 10, "color": HORIZON_COLORS.get(h, PRED_COLOR)},
+                marker={
+                    "size": 10,
+                    "color": [MODEL_COLORS[point[0]] for point in points],
+                },
                 customdata=[[point[0], h] for point in points],
                 hovertemplate=(
                     "%{customdata[0]} (%{customdata[1]}h)"

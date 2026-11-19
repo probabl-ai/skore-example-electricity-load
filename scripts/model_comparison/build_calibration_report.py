@@ -14,35 +14,26 @@ from pathlib import Path
 
 import plotly.graph_objects as go
 import polars as pl
+from model_registry import canonical_order, model_colour
 from plotly.subplots import make_subplots
 
 from electricity_load_forecasting import diagnostics as dg
 
 IDEAL = "gray"
-# Okabe-Ito colorblind-friendly palette; the first four are maximally distinct.
-PALETTE = [
-    "#0072B2",
-    "#E69F00",
-    "#009E73",
-    "#CC79A7",
-    "#56B4E9",
-    "#D55E00",
-    "#F0E442",
-]
 
 
 def load_models(directory):
     paths = sorted(directory.glob("*_cv_predictions.parquet"))
     if not paths:
         raise SystemExit(f"no *_cv_predictions.parquet found in {directory}")
+    frames = {p.stem.removesuffix("_cv_predictions"): pl.read_parquet(p) for p in paths}
     models = []
-    for path in paths:
-        name = path.stem.removesuffix("_cv_predictions")
-        df = pl.read_parquet(path)
+    for name in canonical_order(frames):
+        df = frames[name]
         if not dg.pred_columns(df):
             print(f"skipping {name}: no quantile predictions")
             continue
-        models.append((name, df, PALETTE[len(models) % len(PALETTE)]))
+        models.append((name, df, model_colour(name)))
     return models
 
 
