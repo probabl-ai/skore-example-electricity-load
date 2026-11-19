@@ -44,6 +44,7 @@ EXTRA_LABELS = {
 }
 LABEL_ORDER = [
     "Chronos-2",
+    "t0-gamma",
     "HGB q7",
     "HGB q7 recal",
     "HGB q7 conf",

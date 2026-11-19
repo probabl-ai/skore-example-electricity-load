@@ -4,12 +4,14 @@
 2. The same against predict-only time.
 3. The first row of the calibration summary page: binned coverage of the 90%
    interval by predicted median, per horizon.
-4. True vs predicted 24h load for five models over 2025-03-23 to 2025-04-10,
+4. Mean 90% interval width vs marginal coverage, one subplot per horizon.
+5. True vs predicted 24h load for five models over 2025-03-23 to 2025-04-10,
    one subplot per model, ordered by window MAPE.
 
     python scripts/model_comparison/build_summary_figures.py
 
-Writes four SVG files and ``figures.md`` under
+Writes five SVG files (plus matching PNGs under
+``results/model_comparison/summary/figures/png/``) and ``figures.md`` under
 ``results/model_comparison/summary/figures/``. No model is re-run.
 """
 
@@ -42,6 +44,7 @@ MODEL_ORDER = [
     "kumo_tabular",
     "kumo_forecast",
     "chronos2_ctx4000",
+    "t0_gamma",
     "hgb_quantile_q7",
     "hgb_quantile_recal_q7",
 ]
@@ -53,6 +56,7 @@ LABELS = {
     "kumo_tabular": "Kumo-Tabular",
     "kumo_forecast": "KumoForecast",
     "chronos2_ctx4000": "Chronos-2",
+    "t0_gamma": "t0-gamma",
     "hgb_quantile_q7": "HGB quantile",
     "hgb_quantile_recal_q7": "HGB quantile recalibrated",
 }
@@ -63,8 +67,17 @@ CALIBRATION_ORDER = [
     "tabicl_forecast_ctx1024_n4",
     "kumo_tabular",
     "chronos2_ctx4000",
+    "t0_gamma",
 ]
-PALETTE = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00"]
+PALETTE = [
+    "#0072B2",
+    "#E69F00",
+    "#009E73",
+    "#CC79A7",
+    "#56B4E9",
+    "#D55E00",
+    "#F0E442",
+]
 BLUE = "#1f77b4"
 GREY = "#777777"
 RED = "#d62728"
@@ -75,9 +88,18 @@ TRUE_VS_PRED_MODELS = [
     "hgb_quantile_recal_q7",
     "kumo_tabular",
     "tabicl_n8_full",
+    "t0_gamma",
 ]
 TRUE_VS_PRED_START = datetime.datetime(2025, 4, 1, tzinfo=datetime.timezone.utc)
 TRUE_VS_PRED_END = datetime.datetime(2025, 4, 14, 23, 59, tzinfo=datetime.timezone.utc)
+
+
+def save_both(fig, out):
+    """Save the figure as SVG at ``out`` and as a matching PNG in ``out/png/``."""
+    fig.savefig(out, format="svg", bbox_inches="tight")
+    png_dir = out.parent / "png"
+    png_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(png_dir / out.with_suffix(".png").name, bbox_inches="tight")
 
 
 def fit_score_seconds(path):
@@ -270,7 +292,7 @@ def plot_differences(records, day, fold, x_field, x_label, suptitle, out):
     fig.legend(handles=handles, loc="lower center", ncol=4, frameon=False)
     fig.suptitle(suptitle, fontsize=14)
     fig.tight_layout(rect=[0, 0.05, 1, 0.96])
-    fig.savefig(out, format="svg", bbox_inches="tight")
+    save_both(fig, out)
     plt.close(fig)
 
 
@@ -315,7 +337,66 @@ def plot_calibration_coverage(records, n_bins, out):
     )
     fig.suptitle("Binned coverage of the 90% interval", fontsize=14)
     fig.tight_layout(rect=[0, 0.10, 1, 0.95])
-    fig.savefig(out, format="svg", bbox_inches="tight")
+    save_both(fig, out)
+    plt.close(fig)
+
+
+COVERAGE_WIDTH_LABELS = {
+    "hgb_quantile_q7": "HGB q7",
+    "hgb_quantile_recal_q7": "HGB q7 recal",
+    "tabicl_n8_full": "TabICL",
+    "tabicl_forecast_ctx1024_n4": "TabICL forecast",
+    "kumo_tabular": "Kumo-Tabular",
+    "chronos2_ctx4000": "Chronos-2",
+    "t0_gamma": "t0-gamma",
+}
+
+
+def plot_coverage_width(records, out):
+    """Mean 90% interval width vs marginal coverage, one subplot per horizon.
+
+    One marker per quantile model, labelled next to the dot, with a vertical
+    dashed line at the nominal 90% coverage. Models that meet the target and sit
+    low are sharp and honest.
+    """
+    fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+    for index, name in enumerate(CALIBRATION_ORDER):
+        record = records[name]
+        df = record["df"]
+        columns = dg.pred_columns(df)
+        label = COVERAGE_WIDTH_LABELS[name]
+        for ax, horizon in zip(axes, (1, 12, 24)):
+            y = df[f"{horizon}h"].to_numpy()
+            low = df[columns[horizon][0.05]].to_numpy()
+            high = df[columns[horizon][0.95]].to_numpy()
+            coverage = float(((y >= low) & (y <= high)).mean())
+            width = float((high - low).mean())
+            ax.scatter(
+                coverage,
+                width,
+                color=PALETTE[index],
+                s=40,
+                edgecolor=TEXT,
+                linewidth=0.5,
+            )
+            ax.annotate(
+                label,
+                (coverage, width),
+                textcoords="offset points",
+                xytext=(6, 3),
+                fontsize=8,
+                color=TEXT,
+                bbox={"boxstyle": "round,pad=0.15", "fc": "white", "ec": "none"},
+            )
+    for ax, horizon in zip(axes, (1, 12, 24)):
+        ax.axvline(0.9, color="gray", ls="--", lw=1)
+        ax.set_title(f"{horizon}h horizon")
+        ax.set_ylabel("mean 90% interval width (MW)")
+        ax.grid(True, alpha=0.2)
+    axes[-1].set_xlabel("marginal coverage of the 0.05–0.95 interval")
+    fig.suptitle("Interval sharpness vs coverage (dashed: 90% target)", fontsize=14)
+    fig.tight_layout(rect=[0, 0.02, 1, 0.97])
+    save_both(fig, out)
     plt.close(fig)
 
 
@@ -481,7 +562,7 @@ def plot_true_vs_pred(records, out):
         y=1.00,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.95], h_pad=2.4)
-    fig.savefig(out, format="svg", bbox_inches="tight")
+    save_both(fig, out)
     plt.close(fig)
     print(
         "true vs pred order:",
@@ -511,9 +592,12 @@ Generated by `scripts/model_comparison/build_summary_figures.py`.
 - weather: safe-lead forecast (this directory), oracle not used
 - models: {", ".join(LABELS[name] for name in MODEL_ORDER)}
 - calibration models: {", ".join(LABELS[name] for name in CALIBRATION_ORDER)}
-- files: `diff_fit_predict.svg`, `diff_predict_only.svg`,
-  `calibration_binned_coverage.svg`,
-  `true_vs_pred_24h_2025-04-01_2025-04-14.svg`
+- files: one SVG plus one PNG per figure (PNGs under `png/`):
+  `diff_fit_predict`, `diff_predict_only`, `calibration_binned_coverage`,
+  `coverage_width`, `true_vs_pred_24h_2025-04-01_2025-04-14`
+- coverage vs width: mean 90% interval width (MW) vs marginal coverage per
+  horizon (1h/12h/24h), one marker per calibration model, dashed line at the
+  nominal 90% coverage
 - true vs predicted: 24h horizon, 2025-04-01 to 2025-04-14 (first two weeks of
   April 2025), models
   {", ".join(LABELS[name] for name in TRUE_VS_PRED_MODELS)}, ordered by the
@@ -567,12 +651,13 @@ def main():
     plot_calibration_coverage(
         records, args.n_bins, args.output_dir / "calibration_binned_coverage.svg"
     )
+    plot_coverage_width(records, args.output_dir / "coverage_width.svg")
     plot_true_vs_pred(
         records,
         args.output_dir / "true_vs_pred_24h_2025-04-01_2025-04-14.svg",
     )
     write_provenance(args, args.output_dir)
-    print(f"wrote 4 SVG files to {args.output_dir}")
+    print(f"wrote 5 SVG files to {args.output_dir}")
 
 
 if __name__ == "__main__":

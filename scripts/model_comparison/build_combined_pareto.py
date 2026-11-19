@@ -35,6 +35,7 @@ LABELS = {
     "chronos2_ctx4000": "Chronos-2",
     "kumo_tabular": "Kumo-Tabular",
     "kumo_forecast": "KumoForecast",
+    "t0_gamma": "t0-gamma",
 }
 SOURCES = {
     "oracle": ("Oracle weather", "#999999", "circle"),

@@ -29,6 +29,7 @@ MODELS = {
     "tabicl_forecast_ctx1024_n4": "TabICL forecast",
     "kumo_tabular": "Kumo-Tabular",
     "chronos2_ctx4000": "Chronos-2",
+    "t0_gamma": "t0-gamma",
 }
 DEFAULT_MODELS = list(MODELS)
 

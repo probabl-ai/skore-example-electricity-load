@@ -20,7 +20,15 @@ from electricity_load_forecasting import diagnostics as dg
 
 IDEAL = "gray"
 # Okabe-Ito colorblind-friendly palette; the first four are maximally distinct.
-PALETTE = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00"]
+PALETTE = [
+    "#0072B2",
+    "#E69F00",
+    "#009E73",
+    "#CC79A7",
+    "#56B4E9",
+    "#D55E00",
+    "#F0E442",
+]
 
 
 def load_models(directory):
