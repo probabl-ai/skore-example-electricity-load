@@ -1,4 +1,5 @@
 from .pipeline import (
+    FEATURE_GROUPS,
     concat_X_y_predictions,
     cross_val_predict,
     data_dir,
@@ -14,6 +15,7 @@ from .pipeline import (
 from .splitter import train_test_split
 
 __all__ = [
+    "FEATURE_GROUPS",
     "concat_X_y_predictions",
     "cross_val_predict",
     "data_dir",

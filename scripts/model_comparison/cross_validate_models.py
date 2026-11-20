@@ -80,6 +80,13 @@ identical across models.
 """
 
 import argparse
+import datetime
+import importlib.metadata
+import json
+import os
+import platform
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -122,6 +129,14 @@ parser.add_argument(
 )
 # HGB-specific
 parser.add_argument("--max_iter", type=int, default=3000)
+parser.add_argument(
+    "--feature_groups",
+    nargs="*",
+    default=[],
+    choices=elf.FEATURE_GROUPS,
+    help="extra feature groups for the lagged-feature models (hgb_*, tabicl*, "
+    "kumo_tabular*); see elf.FEATURE_GROUPS",
+)
 # chronos2-specific
 parser.add_argument(
     "--forecaster",
@@ -174,15 +189,23 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
+uses_lagged_features = not args.model.endswith("_forecast") and args.model not in (
+    "chronos2",
+    "t0_gamma",
+)
+if args.feature_groups and not uses_lagged_features:
+    parser.error(f"--feature_groups is not supported by --model {args.model}")
 args.output_dir.mkdir(parents=True, exist_ok=True)
 name = args.model + (f"_{args.tag}" if args.tag else "")
 
 if args.model == "hgb_mean":
     pred = elf.make_data_op(
+        feature_groups=tuple(args.feature_groups),
         horizons=HORIZONS, model="hgb_mean", max_iter=args.max_iter
     )
 elif args.model == "hgb_quantile":
     pred = elf.make_data_op(
+        feature_groups=tuple(args.feature_groups),
         horizons=HORIZONS,
         model="hgb_quantile",
         quantiles=args.quantiles,
@@ -190,6 +213,7 @@ elif args.model == "hgb_quantile":
     )
 elif args.model == "hgb_quantile_recal":
     pred = elf.make_data_op(
+        feature_groups=tuple(args.feature_groups),
         horizons=HORIZONS,
         model="hgb_quantile",
         quantiles=args.quantiles,
@@ -198,6 +222,7 @@ elif args.model == "hgb_quantile_recal":
     )
 elif args.model == "hgb_quantile_conformal":
     pred = elf.make_data_op(
+        feature_groups=tuple(args.feature_groups),
         horizons=HORIZONS,
         model="hgb_quantile",
         quantiles=args.quantiles,
@@ -206,6 +231,7 @@ elif args.model == "hgb_quantile_conformal":
     )
 elif args.model == "tabicl":
     pred = elf.make_data_op(
+        feature_groups=tuple(args.feature_groups),
         horizons=HORIZONS,
         model="tabicl",
         quantiles=args.quantiles,
@@ -213,6 +239,7 @@ elif args.model == "tabicl":
     )
 elif args.model == "tabicl_recal":
     pred = elf.make_data_op(
+        feature_groups=tuple(args.feature_groups),
         horizons=HORIZONS,
         model="tabicl",
         quantiles=args.quantiles,
@@ -221,6 +248,7 @@ elif args.model == "tabicl_recal":
     )
 elif args.model == "tabicl_conformal":
     pred = elf.make_data_op(
+        feature_groups=tuple(args.feature_groups),
         horizons=HORIZONS,
         model="tabicl",
         quantiles=args.quantiles,
@@ -229,6 +257,7 @@ elif args.model == "tabicl_conformal":
     )
 elif args.model == "kumo_tabular":
     pred = elf.make_data_op(
+        feature_groups=tuple(args.feature_groups),
         horizons=HORIZONS,
         model="kumo_tabular",
         quantiles=args.quantiles,
@@ -236,6 +265,7 @@ elif args.model == "kumo_tabular":
     )
 elif args.model == "kumo_tabular_recal":
     pred = elf.make_data_op(
+        feature_groups=tuple(args.feature_groups),
         horizons=HORIZONS,
         model="kumo_tabular",
         quantiles=args.quantiles,
@@ -324,6 +354,76 @@ dt = time.time() - t0
 
 cv_predictions.write_parquet(args.output_dir / f"{name}_cv_predictions.parquet")
 scores.write_csv(args.output_dir / f"{name}_scores.csv")
+
+
+
+def git(*cmd):
+    return subprocess.run(
+        ["git", *cmd], cwd=elf.pipeline.project_dir(), capture_output=True, text=True
+    ).stdout.strip()
+
+
+def version(package):
+    try:
+        return importlib.metadata.version(package)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+metadata = {
+    "command": " ".join(sys.argv),
+    "date": datetime.datetime.now().isoformat(timespec="seconds"),
+    "duration_s": round(dt, 1),
+    "git_commit": git("rev-parse", "HEAD"),
+    "git_modified_files": git("status", "--porcelain", "--untracked-files=no").splitlines(),
+    "host": {
+        "node": platform.node(),
+        "processor": platform.processor(),
+        "cpu_count": os.cpu_count(),
+        "OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS"),
+    },
+    "versions": {
+        pkg: version(pkg)
+        for pkg in ("polars", "scikit-learn", "skrub", "tabicl", "torch", "chronos-forecasting")
+    }
+    | {"python": platform.python_version()},
+    "weather_fetcher": env.get("city_weather_fetcher", elf.fetch_city_weather_forecast).__name__,
+    "env": {k: str(v) for k, v in env.items()},
+    "horizons": HORIZONS,
+    "quantiles": args.quantiles,
+    "max_iter": args.max_iter,
+    "max_train_rows": args.max_train_rows,
+    "splitter": vars(elf.splitter.TimeSeriesSplitter())
+    | {"gap_days": elf.splitter._TRAIN_TEST_GAP_DAYS},
+}
+if uses_lagged_features:
+    metadata["feature_groups"] = args.feature_groups
+    metadata["pipeline_defaults"] = {
+        str(k): str(v) for k, v in pred.skb.describe_defaults().items()
+    }
+    # feature names as resolved by the pipeline, per horizon
+    one_time = elf.pipeline.time_range("2024-06-01")
+    metadata["feature_names"] = {
+        f"{h}h": [
+            c
+            for c in elf.pipeline.add_features(
+                one_time.rename({"time": "prediction_time"}),
+                horizon=h,
+                temperature_only=True,
+                city_names="all",
+                load_mw_history=elf.resample(elf.fetch_load_mw_history()),
+                city_weather_fetcher=env.get(
+                    "city_weather_fetcher", elf.fetch_city_weather_forecast
+                ),
+                holidays_fetcher=elf.pipeline.fetch_holidays,
+                school_holidays_fetcher=elf.pipeline.fetch_school_holidays,
+                feature_groups=tuple(args.feature_groups),
+            ).columns
+            if c not in ("prediction_time", "target_time")
+        ]
+        for h in HORIZONS
+    }
+(args.output_dir / f"{name}_metadata.json").write_text(json.dumps(metadata, indent=2))
 
 if args.reports:
     report_dir = args.output_dir / "reports" / name

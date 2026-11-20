@@ -13,6 +13,7 @@ MAIN_REPORT_TITLE = "Walk-forward CV model comparison"
 SECTION_TITLES = {
     "inspection": "Inspection and diagnostics",
     "model-comparison-forecast": "Model comparison (forecast weather)",
+    "feature-engineering": "Feature engineering",
     "calibration": "Calibration",
     "weather-impact": "Weather data impact",
     "retraining-frequency": "Retraining frequency",
@@ -240,6 +241,8 @@ def build_index():
                 if is_skrub_report(path, title)
                 else ""
             )
+            if title == "DataOp report":  # all skrub reports share this title
+                title += f": {relative.parent.name}"
             rows.append(
                 "<tr>"
                 f'<td><a href="{quote(relative.as_posix())}"{target}>{html.escape(title)}</a>'

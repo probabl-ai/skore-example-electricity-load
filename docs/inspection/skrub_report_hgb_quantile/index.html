@@ -1,0 +1,1566 @@
+<!DOCTYPE html>
+<html lang="en-US">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DataOp report</title>
+    <style>
+     html {
+    font-family: sans-serif;
+    --current-node-color: #15ed8f;
+}
+
+h1,h2,h3,h4 {
+    margin-top: 0.6em;
+    margin-bottom: 0.2em;
+    margin-left: 0;
+    margin-right: 0;
+}
+h1 {
+    margin-top: 0;
+}
+
+ul {
+    margin: 0.1em;
+}
+
+* *::before, *::after {
+    box-sizing: border-box;
+}
+
+pre, code {
+    font-size: 1rem;
+}
+
+.docstring-details summary {
+    cursor: pointer;
+}
+
+.docstring-details {
+    margin: 1em 0;
+}
+
+#graph-nav text {
+    transform: translateY(2px);
+}
+
+.graph-hint {
+    display: inline-block;
+    max-width: 100%;
+    margin: 0 0 0.75rem;
+    padding: 10px 12px;
+    border-left: 4px solid #6b9bd2;
+    border-radius: 3px;
+    background: #eef4fb;
+    color: #1f3b5c;
+    font-size: 0.95rem;
+}
+
+.data_op-node-wrapper {
+    overflow-x: auto;
+}
+
+.mini-nav > ul {
+    display: grid;
+    grid-template-columns: 10ch 10ch 10ch;
+    list-style-type: none;
+}
+
+.data_op-node {
+    display: flex;
+    height: 100%;
+}
+
+.data_op-node > * {
+    padding: 1rem;
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+.data_op-node > nav.main-nav {
+    flex-shrink: 0;
+    min-width: 8rem;
+    box-sizing: border-box;
+}
+
+.node-details {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+/* Drawer displaying the selected node (or a source file) next to the graph. */
+.data_op-node > .drawer {
+    display: none;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.drawer-open .data_op-node > .drawer {
+    display: flex;
+}
+
+/* The node page and the source page are stacked. The one not displayed is only
+   invisible, not display: none, so that the node page keeps its scroll position
+   and the source page can scroll to its highlighted line while it loads. The
+   keyboard does not reach an invisible iframe either. */
+.drawer-body {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.drawer-body > iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: none;
+}
+
+.drawer[data-mode="node"] #source-frame,
+.drawer[data-mode="source"] #node-frame {
+    visibility: hidden;
+}
+
+.drawer[data-mode="source"] #close-drawer,
+.drawer[data-mode="node"] #back-to-node {
+    display: none;
+}
+
+.drawer-toolbar {
+    display: flex;
+    flex: none;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #ddd;
+    background: #fafafa;
+}
+
+.header-button,
+.drawer-toolbar button {
+    padding: 4px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    color: inherit;
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.header-button:hover:not(:disabled),
+.drawer-toolbar button:hover {
+    background: #f0f0f0;
+}
+
+.header-button:disabled {
+    color: #999;
+    cursor: default;
+}
+
+.header-button:focus-visible,
+.drawer-toolbar button:focus-visible {
+    outline: 2px solid #6b9bd2;
+    outline-offset: 1px;
+}
+
+/* Node pages are displayed inside the iframe of the index page: they fill it
+   and scroll as a whole. */
+.node-page {
+    margin: 0;
+}
+
+.node-page .data_op-node {
+    display: block;
+    height: auto;
+}
+
+.node-page .data_op-node > * {
+    max-height: none;
+    overflow-y: visible;
+}
+
+.node-page .node-details {
+    min-height: 100vh;
+}
+
+.node-details[data-has-error]{
+    background: #ffcccc;
+}
+
+.node-details[data-is-skipped]{
+    background: #eee;
+}
+
+.is-skipped-message{
+    background: #eee;
+    padding: 0 1em 1em 1em;
+    border: 1px solid black;
+}
+
+.is-skipped-message + * {
+    margin-top: 1em;
+}
+
+.node-creation-stack {
+    font-size: 1rem;
+}
+
+.node-creation-stack a {
+    text-decoration: none;
+}
+
+.node-creation-stack .node-creation-stack-line {
+    display: block;
+    margin-left: 2em;
+}
+
+.main-nav:not([data-is-open]){
+    display: none;
+}
+
+.nav-legend-current-node {
+    display: flex;
+    background: var(--current-node-color);
+    border: 4px solid black;
+    font-size: 1.2rem;
+    padding: 3px;
+}
+
+.nav-legend-current-node + * {
+    margin-top: 2rem;
+}
+
+/* Layout of the index page: a header with the title and graph toggle, below it
+   the graph and the drawer displaying the selected node. */
+.report-index {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.report-header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #ddd;
+    background: #fafafa;
+}
+
+.report-index > .data_op-node-wrapper {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.report-index .data_op-node {
+    flex: 1;
+    min-height: 0;
+}
+
+.report-index .data_op-node > nav.main-nav {
+    flex: 1 1 auto;
+}
+
+/* The graph is not scrolled but panned and zoomed in a viewport filling the
+   panel (see data_ops-report.js). */
+.report-index .data_op-node > nav.main-nav[data-is-open] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.graph-toolbar {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.graph-toolbar .graph-hint {
+    margin: 0;
+}
+
+#graph-nav {
+    flex: 1 1 0;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #ddd;
+    cursor: grab;
+    /* we handle touch gestures */
+    touch-action: none;
+}
+
+#graph-nav.panning {
+    cursor: grabbing;
+}
+
+#graph-canvas {
+    width: max-content;
+    user-select: none;
+}
+
+#graph-canvas svg {
+    display: block;
+}
+
+.graph-controls {
+    display: flex;
+    gap: 4px;
+}
+
+.graph-controls button {
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.95);
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+.graph-controls button:hover {
+    background: #eef4fb;
+}
+
+/* When the drawer is open the graph and the drawer share the width; the
+   splitter between them sets the share (--graph-width, see data_ops-report.js). */
+.report-index.drawer-open .data_op-node > nav.main-nav {
+    flex: 0 0 auto;
+    width: var(--graph-width, 50%);
+}
+
+/* Draggable divider between the graph and the drawer. The whole line can be
+   dragged (it is wider than it looks, to be easy to grab), and the handle in
+   the middle shows that it can be. Only displayed when both panels are. */
+.data_op-node > .splitter {
+    display: none;
+    position: relative;
+    flex: none;
+    width: 16px;
+    padding: 0;
+    overflow: visible;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(#ccc, #ccc) center / 2px 100% no-repeat;
+    cursor: col-resize;
+    /* we handle touch gestures */
+    touch-action: none;
+}
+
+.drawer-open .data_op-node > nav.main-nav[data-is-open] + .splitter {
+    display: flex;
+}
+
+.splitter-handle {
+    width: 16px;
+    height: 64px;
+    border: 1px solid #888;
+    border-radius: 8px;
+    background:
+        radial-gradient(circle, #666 1.5px, transparent 2px) center / 6px 10px repeat-y,
+        #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+}
+
+.splitter:hover,
+.splitter.dragging {
+    background-image: linear-gradient(#6b9bd2, #6b9bd2);
+}
+
+.splitter:hover .splitter-handle,
+.splitter.dragging .splitter-handle {
+    border-color: #6b9bd2;
+}
+
+.splitter:focus-visible {
+    outline: 2px solid #6b9bd2;
+}
+
+/* While dragging, the pointer must not be captured by the iframes nor select
+   text. */
+.report-index.resizing {
+    cursor: col-resize;
+    user-select: none;
+}
+
+.report-index.resizing iframe {
+    pointer-events: none;
+}
+
+.header-button {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    margin-left: auto;
+}
+
+.report-title {
+    flex: 0 1 auto;
+    margin: 0;
+    min-width: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.error-node polygon {
+    stroke: red;
+    stroke-width: 3;
+}
+
+.skipped-node polygon {
+    stroke-dasharray: 4;
+}
+    </style>
+    <style id="current-node-style"></style>
+</head>
+
+<body class="report-index" data-total-nodes="36">
+    <header class="report-header">
+        <h2 class="report-title">DataOp report</h2>
+        <button type="button" class="header-button" id="toggle-nav"
+            aria-expanded="true" disabled>Hide graph</button>
+    </header>
+    <div class="data_op-node-wrapper">
+        <div class="data_op-node">
+            
+            <nav id="graph-panel" class="main-nav" data-is-open>
+                <div class="graph-toolbar">
+                    <p class="graph-hint"><strong>Click a node</strong> to display its details.
+                        <strong>Drag</strong> to pan, <strong>Ctrl + scroll</strong> to zoom.</p>
+                    
+                    <div class="graph-controls" role="group" aria-label="Graph zoom">
+                        <button type="button" id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+                        <button type="button" id="zoom-out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+                        <button type="button" id="zoom-reset" title="Fit the whole graph in the panel">Reset</button>
+                    </div>
+                </div>
+                
+                <div id="graph-nav">
+                    <div id="graph-canvas">
+                        
+
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: G Pages: 1 -->
+<svg width="1228pt" height="675pt"
+ viewBox="0.00 0.00 1228.45 675.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 671)">
+
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-671 1224.45,-671 1224.45,4 -4,4"/>
+<!-- node_0 -->
+<g id="node_0" class="node">
+
+<g id="a_node_0"><a xlink:href="#node_0" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 655, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;range_start = skrub.var(&quot;start&quot;).skb.set_description(&#10;&#10;The first time at which a prediction is made.">
+<polygon fill="none" stroke="black" points="242,-607 173,-607 173,-588 242,-588 242,-607"/>
+<polygon fill="none" stroke="black" points="246,-611 169,-611 169,-584 246,-584 246,-611"/>
+<text text-anchor="start" x="179" y="-596" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Var &#39;start&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_2 -->
+<g id="node_2" class="node">
+
+<g id="a_node_2"><a xlink:href="#node_2" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 682, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;prediction_time = skrub.deferred(time_range)(range_start, range_end)">
+<polygon fill="none" stroke="black" points="230.5,-555 122.5,-555 122.5,-536 230.5,-536 230.5,-555"/>
+<text text-anchor="start" x="128.5" y="-544" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Call &#39;time_range&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_0&#45;&gt;node_2 -->
+<g id="edge24" class="edge">
+
+<path fill="none" stroke="black" d="M199.68,-583.88C195.39,-576.97 190.06,-568.37 185.59,-561.16"/>
+<polygon fill="black" stroke="black" points="187.56,-559.68 181.79,-555.02 183.39,-562.26 187.56,-559.68"/>
+</g>
+<!-- node_1 -->
+<g id="node_1" class="node">
+
+<g id="a_node_1"><a xlink:href="#node_1" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 658, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;range_end = skrub.var(&quot;end&quot;, None, becomes_default=True).skb.set_description(&#10;&#10;The last time at which a prediction is made.">
+<polygon fill="none" stroke="black" points="146.5,-607 24.5,-607 24.5,-588 146.5,-588 146.5,-607"/>
+<polygon fill="none" stroke="black" points="150.5,-611 20.5,-611 20.5,-584 150.5,-584 150.5,-611"/>
+<text text-anchor="start" x="30.5" y="-596" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Var &#39;end&#39; NoneType</text>
+</a>
+</g>
+</g>
+<!-- node_1&#45;&gt;node_2 -->
+<g id="edge25" class="edge">
+
+<path fill="none" stroke="black" d="M108.46,-583.88C122.58,-576.13 140.57,-566.24 154.51,-558.58"/>
+<polygon fill="black" stroke="black" points="156.03,-560.54 160.99,-555.02 153.67,-556.25 156.03,-560.54"/>
+</g>
+<!-- node_34 -->
+<g id="node_34" class="node">
+
+<g id="a_node_34"><a xlink:href="#node_34" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 806, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.apply_func(">
+<polygon fill="none" stroke="black" points="182.5,-67 64.5,-67 64.5,-48 182.5,-48 182.5,-67"/>
+<text text-anchor="start" x="70.5" y="-56" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Call &#39;post_process&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_1&#45;&gt;node_34 -->
+<g id="edge4" class="edge">
+
+<path fill="none" stroke="black" d="M85.5,-583.81C85.5,-565.13 85.5,-529.12 85.5,-498.5 85.5,-498.5 85.5,-498.5 85.5,-152.5 85.5,-122.56 102.28,-90.9 113.54,-73.03"/>
+<polygon fill="black" stroke="black" points="115.63,-74.3 117.39,-67.1 111.52,-71.63 115.63,-74.3"/>
+</g>
+<!-- node_7 -->
+<g id="node_7" class="node">
+
+<g id="a_node_7"><a xlink:href="#node_7" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 688, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;X_y = prediction_time.skb.apply_func(get_X_y, load_mw_history, horizons)">
+<polygon fill="none" stroke="black" points="335.5,-507 247.5,-507 247.5,-488 335.5,-488 335.5,-507"/>
+<text text-anchor="start" x="253.5" y="-496" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Call &#39;get_X_y&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_2&#45;&gt;node_7 -->
+<g id="edge21" class="edge">
+
+<path fill="none" stroke="black" d="M197.86,-535.96C216.3,-528.58 243.08,-517.87 263.29,-509.79"/>
+<polygon fill="black" stroke="black" points="264.27,-512.03 269.86,-507.15 262.45,-507.48 264.27,-512.03"/>
+</g>
+<!-- node_2&#45;&gt;node_34 -->
+<g id="edge3" class="edge">
+
+<path fill="none" stroke="black" d="M167.27,-535.58C152.08,-519.91 123.5,-485.72 123.5,-450.5 123.5,-450.5 123.5,-450.5 123.5,-152.5 123.5,-125.08 123.5,-93.17 123.5,-74.47"/>
+<polygon fill="black" stroke="black" points="125.95,-74.31 123.5,-67.31 121.05,-74.31 125.95,-74.31"/>
+</g>
+<!-- node_3 -->
+<g id="node_3" class="node">
+
+<g id="a_node_3"><a xlink:href="#node_3" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 661, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;load_mw_history_fetcher = skrub.var(&#10;&#10;Function that loads the historical load data. See signature of electricity_load_forecasting.fetch_load_mw_history.">
+<polygon fill="none" stroke="black" points="559.5,-663 327.5,-663 327.5,-644 559.5,-644 559.5,-663"/>
+<polygon fill="none" stroke="black" points="563.5,-667 323.5,-667 323.5,-640 563.5,-640 563.5,-667"/>
+<text text-anchor="start" x="333.5" y="-652" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Var &#39;load_mw_history_fetcher&#39; function</text>
+</a>
+</g>
+</g>
+<!-- node_4 -->
+<g id="node_4" class="node">
+
+<g id="a_node_4"><a xlink:href="#node_4" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 684, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;load_mw_history_fetcher()">
+<polygon fill="none" stroke="black" points="535.5,-607 351.5,-607 351.5,-588 535.5,-588 535.5,-607"/>
+<text text-anchor="start" x="357.5" y="-596" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Call &#39;load_mw_history_fetcher&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_3&#45;&gt;node_4 -->
+<g id="edge27" class="edge">
+
+<path fill="none" stroke="black" d="M443.5,-639.98C443.5,-632.33 443.5,-622.47 443.5,-614.29"/>
+<polygon fill="black" stroke="black" points="445.95,-614.09 443.5,-607.09 441.05,-614.09 445.95,-614.09"/>
+</g>
+<!-- node_5 -->
+<g id="node_5" class="node">
+
+<g id="a_node_5"><a xlink:href="#node_5" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 685, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.apply_func(resample)&#10;&#10;Historical load data on a regular 1h time grid.">
+<polygon fill="none" stroke="black" points="492,-555 395,-555 395,-536 492,-536 492,-555"/>
+<text text-anchor="start" x="401" y="-544" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Call &#39;resample&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_4&#45;&gt;node_5 -->
+<g id="edge26" class="edge">
+
+<path fill="none" stroke="black" d="M443.5,-587.79C443.5,-580.76 443.5,-570.7 443.5,-562.26"/>
+<polygon fill="black" stroke="black" points="445.95,-562.11 443.5,-555.11 441.05,-562.11 445.95,-562.11"/>
+</g>
+<!-- node_5&#45;&gt;node_7 -->
+<g id="edge22" class="edge">
+
+<path fill="none" stroke="black" d="M415.27,-535.96C390.28,-528.39 353.72,-517.33 326.81,-509.19"/>
+<polygon fill="black" stroke="black" points="327.25,-506.76 319.84,-507.08 325.83,-511.45 327.25,-506.76"/>
+</g>
+<!-- node_13 -->
+<g id="node_13" class="node">
+
+<g id="a_node_13"><a xlink:href="#node_13" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 766, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;X.skb.apply_func(&#10;&#10;Features to use for predicting the 1h horizon. They only use data available at least 1 hours before the target time.">
+<polygon fill="none" stroke="black" points="532,-355 361,-355 361,-336 532,-336 532,-355"/>
+<text text-anchor="start" x="367" y="-344" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">feat_1h | Call &#39;add_features&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_5&#45;&gt;node_13 -->
+<g id="edge15" class="edge">
+
+<path fill="none" stroke="black" d="M433.08,-535.85C414.06,-518.95 376.3,-479.73 383.5,-440 388.24,-413.85 389.48,-405.93 404.5,-384 410.84,-374.74 419.93,-366.25 428.04,-359.7"/>
+<polygon fill="black" stroke="black" points="429.96,-361.31 433.98,-355.08 426.95,-357.44 429.96,-361.31"/>
+</g>
+<!-- node_20 -->
+<g id="node_20" class="node">
+
+<g id="a_node_20"><a xlink:href="#node_20" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 766, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;X.skb.apply_func(&#10;&#10;Features to use for predicting the 12h horizon. They only use data available at least 12 hours before the target time.">
+<polygon fill="none" stroke="black" points="941.5,-355 763.5,-355 763.5,-336 941.5,-336 941.5,-355"/>
+<text text-anchor="start" x="769.5" y="-344" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">feat_12h | Call &#39;add_features&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_5&#45;&gt;node_20 -->
+<g id="edge36" class="edge">
+
+<path fill="none" stroke="black" d="M492.2,-543.86C646.68,-540.71 1121.06,-522.01 1214.5,-411 1222.23,-401.82 1222.54,-392.91 1214.5,-384 1196.94,-364.53 1049.91,-354.54 948.73,-349.92"/>
+<polygon fill="black" stroke="black" points="948.63,-347.47 941.52,-349.6 948.41,-352.36 948.63,-347.47"/>
+</g>
+<!-- node_26 -->
+<g id="node_26" class="node">
+
+<g id="a_node_26"><a xlink:href="#node_26" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 766, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;X.skb.apply_func(&#10;&#10;Features to use for predicting the 24h horizon. They only use data available at least 24 hours before the target time.">
+<polygon fill="none" stroke="black" points="739.5,-355 561.5,-355 561.5,-336 739.5,-336 739.5,-355"/>
+<text text-anchor="start" x="567.5" y="-344" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">feat_24h | Call &#39;add_features&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_5&#45;&gt;node_26 -->
+<g id="edge47" class="edge">
+
+<path fill="none" stroke="black" d="M446.95,-535.66C459.54,-503.61 502.88,-394.85 515.5,-384 530.6,-371.02 549.84,-362.51 569.04,-356.93"/>
+<polygon fill="black" stroke="black" points="569.71,-359.29 575.82,-355.08 568.42,-354.56 569.71,-359.29"/>
+</g>
+<!-- node_6 -->
+<g id="node_6" class="node">
+
+<g id="a_node_6"><a xlink:href="#node_6" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 152, in &lt;module&gt;&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;def get_X_y(prediction_time, load_mw_history, horizons, mode=skrub.eval_mode()):">
+<polygon fill="none" stroke="black" points="325,-555 258,-555 258,-536 325,-536 325,-555"/>
+<text text-anchor="start" x="264" y="-544" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">EvalMode</text>
+</a>
+</g>
+</g>
+<!-- node_6&#45;&gt;node_7 -->
+<g id="edge23" class="edge">
+
+<path fill="none" stroke="black" d="M291.5,-535.63C291.5,-529.57 291.5,-521.38 291.5,-514.23"/>
+<polygon fill="black" stroke="black" points="293.95,-514.03 291.5,-507.03 289.05,-514.03 293.95,-514.03"/>
+</g>
+<!-- node_8 -->
+<g id="node_8" class="node">
+
+<g id="a_node_8"><a xlink:href="#node_8" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 689, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;X = X_y[&quot;X&quot;].skb.mark_as_X(cv=TimeSeriesSplitter())">
+<polygon fill="none" stroke="black" points="467,-459 392,-459 392,-440 467,-440 467,-459"/>
+<text text-anchor="start" x="398" y="-448" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">GetItem &#39;X&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_7&#45;&gt;node_8 -->
+<g id="edge20" class="edge">
+
+<path fill="none" stroke="black" d="M317.13,-487.96C339.55,-480.48 372.24,-469.59 396.59,-461.47"/>
+<polygon fill="black" stroke="black" points="397.67,-463.69 403.54,-459.15 396.12,-459.04 397.67,-463.69"/>
+</g>
+<!-- node_17 -->
+<g id="node_17" class="node">
+
+<g id="a_node_17"><a xlink:href="#node_17" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 691, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;X_y[&quot;y&quot;]&#10;&#10;Actual loads at different horizons. The column Xh corresponds to what happened X hours after the date in the corresponding &#39;prediction_time&#39; column of X.">
+<polygon fill="#fad9c6" stroke="black" points="447.5,-259 357.5,-259 357.5,-240 447.5,-240 447.5,-259"/>
+<text text-anchor="start" x="363.5" y="-248" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">y: GetItem &#39;y&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_7&#45;&gt;node_17 -->
+<g id="edge29" class="edge">
+
+<path fill="none" stroke="black" d="M296.21,-487.87C304.88,-471.15 322.5,-432.94 322.5,-398.5 322.5,-398.5 322.5,-398.5 322.5,-344.5 322.5,-308.11 357.71,-278.63 381.41,-262.91"/>
+<polygon fill="black" stroke="black" points="382.88,-264.88 387.45,-259.03 380.24,-260.75 382.88,-264.88"/>
+</g>
+<!-- node_9 -->
+<g id="node_9" class="node">
+
+<g id="a_node_9"><a xlink:href="#node_9" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 689, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;X = X_y[&quot;X&quot;].skb.mark_as_X(cv=TimeSeriesSplitter())">
+<polygon fill="#c6d5f0" stroke="black" points="467.5,-407 413.5,-407 413.5,-388 467.5,-388 467.5,-407"/>
+<text text-anchor="start" x="436.5" y="-396" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">X</text>
+</a>
+</g>
+</g>
+<!-- node_8&#45;&gt;node_9 -->
+<g id="edge19" class="edge">
+
+<path fill="none" stroke="black" d="M431.42,-439.79C432.98,-432.69 435.22,-422.49 437.09,-414"/>
+<polygon fill="black" stroke="black" points="439.49,-414.47 438.61,-407.11 434.71,-413.42 439.49,-414.47"/>
+</g>
+<!-- node_9&#45;&gt;node_13 -->
+<g id="edge14" class="edge">
+
+<path fill="none" stroke="black" d="M441.55,-387.79C442.39,-380.76 443.6,-370.7 444.61,-362.26"/>
+<polygon fill="black" stroke="black" points="447.07,-362.35 445.47,-355.11 442.2,-361.77 447.07,-362.35"/>
+</g>
+<!-- node_9&#45;&gt;node_20 -->
+<g id="edge35" class="edge">
+
+<path fill="none" stroke="black" d="M467.52,-391.63C481.77,-389.16 499.55,-386.22 515.5,-384 596.65,-372.73 689.17,-362.63 756.72,-355.76"/>
+<polygon fill="black" stroke="black" points="757.28,-358.17 764,-355.02 756.79,-353.29 757.28,-358.17"/>
+</g>
+<!-- node_9&#45;&gt;node_26 -->
+<g id="edge46" class="edge">
+
+<path fill="none" stroke="black" d="M467.32,-388C472.03,-386.6 476.89,-385.21 481.5,-384 521.25,-373.55 566.77,-363.56 600.54,-356.52"/>
+<polygon fill="black" stroke="black" points="601.21,-358.89 607.56,-355.07 600.21,-354.09 601.21,-358.89"/>
+</g>
+<!-- node_10 -->
+<g id="node_10" class="node">
+
+<g id="a_node_10"><a xlink:href="#node_10" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 667, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;city_weather_fetcher = skrub.var(&#10;&#10;Function that loads the weather forecast for a city. See signature of electricity_load_forecasting.fetch_city_weather_forecast.">
+<polygon fill="none" stroke="black" points="1201,-407 992,-407 992,-388 1201,-388 1201,-407"/>
+<polygon fill="none" stroke="black" points="1205,-411 988,-411 988,-384 1205,-384 1205,-411"/>
+<text text-anchor="start" x="998" y="-396" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Var &#39;city_weather_fetcher&#39; function</text>
+</a>
+</g>
+</g>
+<!-- node_10&#45;&gt;node_13 -->
+<g id="edge16" class="edge">
+
+<path fill="none" stroke="black" d="M987.85,-384.84C984.7,-384.55 981.58,-384.27 978.5,-384 789.44,-367.56 741.75,-369.03 552.5,-355 548.15,-354.68 543.7,-354.34 539.21,-354"/>
+<polygon fill="black" stroke="black" points="539.28,-351.55 532.12,-353.45 538.91,-356.43 539.28,-351.55"/>
+</g>
+<!-- node_10&#45;&gt;node_20 -->
+<g id="edge37" class="edge">
+
+<path fill="none" stroke="black" d="M1035.24,-383.95C993.78,-375.45 939.75,-364.38 901.22,-356.48"/>
+<polygon fill="black" stroke="black" points="901.56,-354.05 894.21,-355.05 900.57,-358.85 901.56,-354.05"/>
+</g>
+<!-- node_10&#45;&gt;node_26 -->
+<g id="edge48" class="edge">
+
+<path fill="none" stroke="black" d="M987.97,-384.33C909.69,-375.56 805.6,-363.89 733.83,-355.84"/>
+<polygon fill="black" stroke="black" points="733.78,-353.37 726.55,-355.03 733.23,-358.24 733.78,-353.37"/>
+</g>
+<!-- node_11 -->
+<g id="node_11" class="node">
+
+<g id="a_node_11"><a xlink:href="#node_11" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 673, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;holidays_fetcher = skrub.var(">
+<polygon fill="none" stroke="black" points="713,-407 528,-407 528,-388 713,-388 713,-407"/>
+<polygon fill="none" stroke="black" points="717,-411 524,-411 524,-384 717,-384 717,-411"/>
+<text text-anchor="start" x="534" y="-396" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Var &#39;holidays_fetcher&#39; function</text>
+</a>
+</g>
+</g>
+<!-- node_11&#45;&gt;node_13 -->
+<g id="edge17" class="edge">
+
+<path fill="none" stroke="black" d="M576.59,-383.88C547.76,-375.6 510.48,-364.88 483.22,-357.05"/>
+<polygon fill="black" stroke="black" points="483.57,-354.6 476.16,-355.02 482.22,-359.31 483.57,-354.6"/>
+</g>
+<!-- node_11&#45;&gt;node_20 -->
+<g id="edge38" class="edge">
+
+<path fill="none" stroke="black" d="M678.74,-383.95C718,-375.49 769.12,-364.47 805.72,-356.58"/>
+<polygon fill="black" stroke="black" points="806.52,-358.92 812.84,-355.05 805.49,-354.13 806.52,-358.92"/>
+</g>
+<!-- node_11&#45;&gt;node_26 -->
+<g id="edge49" class="edge">
+
+<path fill="none" stroke="black" d="M628.07,-383.88C632.22,-376.97 637.38,-368.37 641.7,-361.16"/>
+<polygon fill="black" stroke="black" points="643.88,-362.29 645.39,-355.02 639.68,-359.77 643.88,-362.29"/>
+</g>
+<!-- node_12 -->
+<g id="node_12" class="node">
+
+<g id="a_node_12"><a xlink:href="#node_12" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 676, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;school_holidays_fetcher = skrub.var(&#10;&#10;Function that loads the French school vacations per zone. See electricity_load_forecasting.pipeline.fetch_school_holidays.">
+<polygon fill="none" stroke="black" points="965.5,-407 739.5,-407 739.5,-388 965.5,-388 965.5,-407"/>
+<polygon fill="none" stroke="black" points="969.5,-411 735.5,-411 735.5,-384 969.5,-384 969.5,-411"/>
+<text text-anchor="start" x="745.5" y="-396" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Var &#39;school_holidays_fetcher&#39; function</text>
+</a>
+</g>
+</g>
+<!-- node_12&#45;&gt;node_13 -->
+<g id="edge18" class="edge">
+
+<path fill="none" stroke="black" d="M750.83,-383.98C680.16,-375.28 587.44,-363.86 523,-355.92"/>
+<polygon fill="black" stroke="black" points="522.92,-353.44 515.68,-355.02 522.33,-358.31 522.92,-353.44"/>
+</g>
+<!-- node_12&#45;&gt;node_20 -->
+<g id="edge39" class="edge">
+
+<path fill="none" stroke="black" d="M852.5,-383.88C852.5,-377.25 852.5,-369.07 852.5,-362.05"/>
+<polygon fill="black" stroke="black" points="854.95,-362.02 852.5,-355.02 850.05,-362.02 854.95,-362.02"/>
+</g>
+<!-- node_12&#45;&gt;node_26 -->
+<g id="edge50" class="edge">
+
+<path fill="none" stroke="black" d="M801.79,-383.95C767.89,-375.56 723.84,-364.65 692.03,-356.78"/>
+<polygon fill="black" stroke="black" points="692.41,-354.35 685.03,-355.05 691.23,-359.11 692.41,-354.35"/>
+</g>
+<!-- node_14 -->
+<g id="node_14" class="node">
+
+<g id="a_node_14"><a xlink:href="#node_14" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 782, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.drop([&quot;prediction_time&quot;, &quot;target_time&quot;])">
+<polygon fill="none" stroke="black" points="282,-307 181,-307 181,-288 282,-288 282,-307"/>
+<text text-anchor="start" x="187" y="-296" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Apply DropCols</text>
+</a>
+</g>
+</g>
+<!-- node_13&#45;&gt;node_14 -->
+<g id="edge13" class="edge">
+
+<path fill="none" stroke="black" d="M406.56,-335.96C370.32,-328.2 316.86,-316.76 278.55,-308.57"/>
+<polygon fill="black" stroke="black" points="278.94,-306.15 271.59,-307.08 277.92,-310.94 278.94,-306.15"/>
+</g>
+<!-- node_15 -->
+<g id="node_15" class="node">
+
+<g id="a_node_15"><a xlink:href="#node_15" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 783, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.apply(skrub.ToFloat())">
+<polygon fill="none" stroke="black" points="270.5,-259 180.5,-259 180.5,-240 270.5,-240 270.5,-259"/>
+<text text-anchor="start" x="186.5" y="-248" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Apply ToFloat</text>
+</a>
+</g>
+</g>
+<!-- node_14&#45;&gt;node_15 -->
+<g id="edge12" class="edge">
+
+<path fill="none" stroke="black" d="M230.34,-287.63C229.55,-281.57 228.48,-273.38 227.55,-266.23"/>
+<polygon fill="black" stroke="black" points="229.95,-265.66 226.61,-259.03 225.09,-266.29 229.95,-265.66"/>
+</g>
+<!-- node_16 -->
+<g id="node_16" class="node">
+
+<g id="a_node_16"><a xlink:href="#node_16" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 784, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.to_numpy()">
+<polygon fill="none" stroke="black" points="293,-211 152,-211 152,-192 293,-192 293,-211"/>
+<text text-anchor="start" x="158" y="-200" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">CallMethod &#39;to_numpy&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_15&#45;&gt;node_16 -->
+<g id="edge11" class="edge">
+
+<path fill="none" stroke="black" d="M224.92,-239.63C224.53,-233.57 223.99,-225.38 223.53,-218.23"/>
+<polygon fill="black" stroke="black" points="225.96,-217.86 223.06,-211.03 221.07,-218.18 225.96,-217.86"/>
+</g>
+<!-- node_19 -->
+<g id="node_19" class="node">
+
+<g id="a_node_19"><a xlink:href="#node_19" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 785, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.apply(&#10;&#10;Predicted load 1 hours after the &#39;prediction_time&#39; in X.">
+<polygon fill="none" stroke="black" points="387,-163 152,-163 152,-144 387,-144 387,-163"/>
+<text text-anchor="start" x="158" y="-152" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">pred_1h | Apply HGBQuantileRegressor</text>
+</a>
+</g>
+</g>
+<!-- node_16&#45;&gt;node_19 -->
+<g id="edge9" class="edge">
+
+<path fill="none" stroke="black" d="M231.56,-191.63C238.41,-184.93 247.93,-175.61 255.72,-167.99"/>
+<polygon fill="black" stroke="black" points="257.49,-169.68 260.78,-163.03 254.07,-166.18 257.49,-169.68"/>
+</g>
+<!-- node_18 -->
+<g id="node_18" class="node">
+
+<g id="a_node_18"><a xlink:href="#node_18" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 787, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;y=y[f&quot;{h}h&quot;],">
+<polygon fill="none" stroke="black" points="392,-211 311,-211 311,-192 392,-192 392,-211"/>
+<text text-anchor="start" x="317" y="-200" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">GetItem &#39;1h&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_17&#45;&gt;node_18 -->
+<g id="edge28" class="edge">
+
+<path fill="none" stroke="black" d="M392.67,-239.63C385.23,-232.93 374.9,-223.61 366.45,-215.99"/>
+<polygon fill="black" stroke="black" points="367.8,-213.9 360.96,-211.03 364.52,-217.54 367.8,-213.9"/>
+</g>
+<!-- node_24 -->
+<g id="node_24" class="node">
+
+<g id="a_node_24"><a xlink:href="#node_24" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 787, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;y=y[f&quot;{h}h&quot;],">
+<polygon fill="none" stroke="black" points="604.5,-211 516.5,-211 516.5,-192 604.5,-192 604.5,-211"/>
+<text text-anchor="start" x="522.5" y="-200" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">GetItem &#39;12h&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_17&#45;&gt;node_24 -->
+<g id="edge40" class="edge">
+
+<path fill="none" stroke="black" d="M431.85,-239.96C457.93,-232.36 496.15,-221.24 524.15,-213.08"/>
+<polygon fill="black" stroke="black" points="525.01,-215.39 531.04,-211.08 523.64,-210.68 525.01,-215.39"/>
+</g>
+<!-- node_30 -->
+<g id="node_30" class="node">
+
+<g id="a_node_30"><a xlink:href="#node_30" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 787, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;y=y[f&quot;{h}h&quot;],">
+<polygon fill="none" stroke="black" points="498.5,-211 410.5,-211 410.5,-192 498.5,-192 498.5,-211"/>
+<text text-anchor="start" x="416.5" y="-200" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">GetItem &#39;24h&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_17&#45;&gt;node_30 -->
+<g id="edge51" class="edge">
+
+<path fill="none" stroke="black" d="M412.53,-239.63C420.1,-232.93 430.64,-223.61 439.26,-215.99"/>
+<polygon fill="black" stroke="black" points="441.24,-217.5 444.86,-211.03 437.99,-213.83 441.24,-217.5"/>
+</g>
+<!-- node_18&#45;&gt;node_19 -->
+<g id="edge10" class="edge">
+
+<path fill="none" stroke="black" d="M336.08,-191.85C323.36,-184.72 305.19,-174.52 291.04,-166.58"/>
+<polygon fill="black" stroke="black" points="292.16,-164.4 284.85,-163.11 289.76,-168.68 292.16,-164.4"/>
+</g>
+<!-- node_33 -->
+<g id="node_33" class="node">
+
+<g id="a_node_33"><a xlink:href="#node_33" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 797, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;skrub.deferred(concat_horizons)(&#10;&#10;Output of the pipeline: predicted loads at multiple horizons. Column Xh contains the predicted load X hours after the &#39;prediction_time&#39; in X.">
+<polygon fill="none" stroke="black" points="653.5,-115 399.5,-115 399.5,-96 653.5,-96 653.5,-115"/>
+<text text-anchor="start" x="405.5" y="-104" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">pred_multi_horizon | Call &#39;concat_horizons&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_19&#45;&gt;node_33 -->
+<g id="edge5" class="edge">
+
+<path fill="none" stroke="black" d="M317.24,-143.96C361.01,-136.12 425.8,-124.52 471.67,-116.31"/>
+<polygon fill="black" stroke="black" points="472.12,-118.72 478.58,-115.08 471.26,-113.9 472.12,-118.72"/>
+</g>
+<!-- node_21 -->
+<g id="node_21" class="node">
+
+<g id="a_node_21"><a xlink:href="#node_21" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 782, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.drop([&quot;prediction_time&quot;, &quot;target_time&quot;])">
+<polygon fill="none" stroke="black" points="903,-307 802,-307 802,-288 903,-288 903,-307"/>
+<text text-anchor="start" x="808" y="-296" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Apply DropCols</text>
+</a>
+</g>
+</g>
+<!-- node_20&#45;&gt;node_21 -->
+<g id="edge34" class="edge">
+
+<path fill="none" stroke="black" d="M852.5,-335.63C852.5,-329.57 852.5,-321.38 852.5,-314.23"/>
+<polygon fill="black" stroke="black" points="854.95,-314.03 852.5,-307.03 850.05,-314.03 854.95,-314.03"/>
+</g>
+<!-- node_22 -->
+<g id="node_22" class="node">
+
+<g id="a_node_22"><a xlink:href="#node_22" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 783, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.apply(skrub.ToFloat())">
+<polygon fill="none" stroke="black" points="897.5,-259 807.5,-259 807.5,-240 897.5,-240 897.5,-259"/>
+<text text-anchor="start" x="813.5" y="-248" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Apply ToFloat</text>
+</a>
+</g>
+</g>
+<!-- node_21&#45;&gt;node_22 -->
+<g id="edge33" class="edge">
+
+<path fill="none" stroke="black" d="M852.5,-287.63C852.5,-281.57 852.5,-273.38 852.5,-266.23"/>
+<polygon fill="black" stroke="black" points="854.95,-266.03 852.5,-259.03 850.05,-266.03 854.95,-266.03"/>
+</g>
+<!-- node_23 -->
+<g id="node_23" class="node">
+
+<g id="a_node_23"><a xlink:href="#node_23" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 784, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.to_numpy()">
+<polygon fill="none" stroke="black" points="923,-211 782,-211 782,-192 923,-192 923,-211"/>
+<text text-anchor="start" x="788" y="-200" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">CallMethod &#39;to_numpy&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_22&#45;&gt;node_23 -->
+<g id="edge32" class="edge">
+
+<path fill="none" stroke="black" d="M852.5,-239.63C852.5,-233.57 852.5,-225.38 852.5,-218.23"/>
+<polygon fill="black" stroke="black" points="854.95,-218.03 852.5,-211.03 850.05,-218.03 854.95,-218.03"/>
+</g>
+<!-- node_25 -->
+<g id="node_25" class="node">
+
+<g id="a_node_25"><a xlink:href="#node_25" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 785, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.apply(&#10;&#10;Predicted load 12 hours after the &#39;prediction_time&#39; in X.">
+<polygon fill="none" stroke="black" points="907.5,-163 665.5,-163 665.5,-144 907.5,-144 907.5,-163"/>
+<text text-anchor="start" x="671.5" y="-152" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">pred_12h | Apply HGBQuantileRegressor</text>
+</a>
+</g>
+</g>
+<!-- node_23&#45;&gt;node_25 -->
+<g id="edge30" class="edge">
+
+<path fill="none" stroke="black" d="M840.09,-191.85C830.13,-184.91 816.01,-175.07 804.77,-167.23"/>
+<polygon fill="black" stroke="black" points="806,-165.11 798.86,-163.11 803.2,-169.13 806,-165.11"/>
+</g>
+<!-- node_24&#45;&gt;node_25 -->
+<g id="edge31" class="edge">
+
+<path fill="none" stroke="black" d="M602.48,-191.96C640.65,-184.19 697.01,-172.71 737.29,-164.52"/>
+<polygon fill="black" stroke="black" points="737.99,-166.87 744.36,-163.08 737.01,-162.07 737.99,-166.87"/>
+</g>
+<!-- node_25&#45;&gt;node_33 -->
+<g id="edge6" class="edge">
+
+<path fill="none" stroke="black" d="M738.21,-143.96C693.93,-136.12 628.38,-124.52 581.97,-116.31"/>
+<polygon fill="black" stroke="black" points="582.3,-113.88 574.98,-115.08 581.44,-118.71 582.3,-113.88"/>
+</g>
+<!-- node_27 -->
+<g id="node_27" class="node">
+
+<g id="a_node_27"><a xlink:href="#node_27" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 782, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.drop([&quot;prediction_time&quot;, &quot;target_time&quot;])">
+<polygon fill="none" stroke="black" points="712,-307 611,-307 611,-288 712,-288 712,-307"/>
+<text text-anchor="start" x="617" y="-296" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Apply DropCols</text>
+</a>
+</g>
+</g>
+<!-- node_26&#45;&gt;node_27 -->
+<g id="edge45" class="edge">
+
+<path fill="none" stroke="black" d="M652.62,-335.63C654.07,-329.57 656.03,-321.38 657.74,-314.23"/>
+<polygon fill="black" stroke="black" points="660.21,-314.41 659.46,-307.03 655.45,-313.27 660.21,-314.41"/>
+</g>
+<!-- node_28 -->
+<g id="node_28" class="node">
+
+<g id="a_node_28"><a xlink:href="#node_28" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 783, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.apply(skrub.ToFloat())">
+<polygon fill="none" stroke="black" points="717.5,-259 627.5,-259 627.5,-240 717.5,-240 717.5,-259"/>
+<text text-anchor="start" x="633.5" y="-248" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Apply ToFloat</text>
+</a>
+</g>
+</g>
+<!-- node_27&#45;&gt;node_28 -->
+<g id="edge44" class="edge">
+
+<path fill="none" stroke="black" d="M663.62,-287.63C665.07,-281.57 667.03,-273.38 668.74,-266.23"/>
+<polygon fill="black" stroke="black" points="671.21,-266.41 670.46,-259.03 666.45,-265.27 671.21,-266.41"/>
+</g>
+<!-- node_29 -->
+<g id="node_29" class="node">
+
+<g id="a_node_29"><a xlink:href="#node_29" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 784, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.to_numpy()">
+<polygon fill="none" stroke="black" points="764,-211 623,-211 623,-192 764,-192 764,-211"/>
+<text text-anchor="start" x="629" y="-200" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">CallMethod &#39;to_numpy&#39;</text>
+</a>
+</g>
+</g>
+<!-- node_28&#45;&gt;node_29 -->
+<g id="edge43" class="edge">
+
+<path fill="none" stroke="black" d="M676.55,-239.63C679.37,-233.44 683.22,-225.03 686.53,-217.77"/>
+<polygon fill="black" stroke="black" points="688.93,-218.42 689.61,-211.03 684.47,-216.38 688.93,-218.42"/>
+</g>
+<!-- node_31 -->
+<g id="node_31" class="node">
+
+<g id="a_node_31"><a xlink:href="#node_31" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 785, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.apply(&#10;&#10;Predicted load 24 hours after the &#39;prediction_time&#39; in X.">
+<polygon fill="none" stroke="black" points="647.5,-163 405.5,-163 405.5,-144 647.5,-144 647.5,-163"/>
+<text text-anchor="start" x="411.5" y="-152" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">pred_24h | Apply HGBQuantileRegressor</text>
+</a>
+</g>
+</g>
+<!-- node_29&#45;&gt;node_31 -->
+<g id="edge41" class="edge">
+
+<path fill="none" stroke="black" d="M662.48,-191.96C634.8,-184.33 594.17,-173.14 564.54,-164.98"/>
+<polygon fill="black" stroke="black" points="565.04,-162.57 557.64,-163.08 563.73,-167.3 565.04,-162.57"/>
+</g>
+<!-- node_30&#45;&gt;node_31 -->
+<g id="edge42" class="edge">
+
+<path fill="none" stroke="black" d="M468.04,-191.85C479,-184.84 494.59,-174.89 506.91,-167.01"/>
+<polygon fill="black" stroke="black" points="508.44,-168.95 513.02,-163.11 505.8,-164.82 508.44,-168.95"/>
+</g>
+<!-- node_31&#45;&gt;node_33 -->
+<g id="edge7" class="edge">
+
+<path fill="none" stroke="black" d="M526.5,-143.63C526.5,-137.57 526.5,-129.38 526.5,-122.23"/>
+<polygon fill="black" stroke="black" points="528.95,-122.03 526.5,-115.03 524.05,-122.03 528.95,-122.03"/>
+</g>
+<!-- node_32 -->
+<g id="node_32" class="node">
+
+<g id="a_node_32"><a xlink:href="#node_32" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 516, in &lt;module&gt;&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;def concat_horizons(all_pred, quantile_regression=False, mode=skrub.eval_mode()):">
+<polygon fill="none" stroke="black" points="993,-163 926,-163 926,-144 993,-144 993,-163"/>
+<text text-anchor="start" x="932" y="-152" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">EvalMode</text>
+</a>
+</g>
+</g>
+<!-- node_32&#45;&gt;node_33 -->
+<g id="edge8" class="edge">
+
+<path fill="none" stroke="black" d="M925.75,-145.5C922.63,-144.95 919.51,-144.44 916.5,-144 829.62,-131.27 731.2,-121.84 654.96,-115.62"/>
+<polygon fill="black" stroke="black" points="654.83,-113.16 647.65,-115.03 654.43,-118.04 654.83,-113.16"/>
+</g>
+<!-- node_33&#45;&gt;node_34 -->
+<g id="edge2" class="edge">
+
+<path fill="none" stroke="black" d="M451.64,-95.96C376.49,-87.38 261.81,-74.29 189.83,-66.07"/>
+<polygon fill="black" stroke="black" points="189.8,-63.6 182.57,-65.24 189.25,-68.47 189.8,-63.6"/>
+</g>
+<!-- node_35 -->
+<g id="node_35" class="node">
+
+<g id="a_node_35"><a xlink:href="#node_35" xlink:title=" &#160;&#160;&#160;&#160;&#160;File &quot;/workspace/src/electricity_load_forecasting/pipeline.py&quot;, line 812, in make_data_op&#10; &#160;&#160;&#160;&#160;&#160;&#160;&#160;.skb.with_scoring(">
+<polygon fill="none" stroke="black" points="247,-19 0,-19 0,0 247,0 247,-19"/>
+<text text-anchor="start" x="6" y="-8" font-family="sans-serif" font-weight="bold" font-size="10.00" fill="#1a0dab">Scoring &lt;Call &#39;post_process&#39;&gt; (4 scorers)</text>
+</a>
+</g>
+</g>
+<!-- node_34&#45;&gt;node_35 -->
+<g id="edge1" class="edge">
+
+<path fill="none" stroke="black" d="M123.5,-47.63C123.5,-41.57 123.5,-33.38 123.5,-26.23"/>
+<polygon fill="black" stroke="black" points="125.95,-26.03 123.5,-19.03 121.05,-26.03 125.95,-26.03"/>
+</g>
+</g>
+</svg>
+
+                    </div>
+                </div>
+            </nav>
+            
+            <div id="splitter" class="splitter" role="separator"
+                aria-orientation="vertical" aria-label="Resize the graph and node details panels"
+                aria-controls="graph-panel" tabindex="0" title="Drag to resize (double-click to reset)">
+                <div class="splitter-handle" aria-hidden="true"></div>
+            </div>
+            
+            <div id="drawer" class="drawer" data-mode="node">
+                <div class="drawer-toolbar">
+                    <button type="button" id="close-drawer">Close</button>
+                    <button type="button" id="back-to-node">Back to node details</button>
+                </div>
+                <div class="drawer-body">
+                    <iframe id="node-frame" title="Details of the selected node"></iframe>
+                    <iframe id="source-frame" title="Source code"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+<script>
+ /**
+* Panzoom 4.6.2 for panning and zooming elements using CSS transforms
+* Copyright Timmy Willison and other contributors
+* https://github.com/timmywil/panzoom/blob/main/MIT-License.txt
+*/
+((e,t)=>{"object"==typeof exports&&"undefined"!=typeof module?module.exports=t():"function"==typeof define&&define.amd?define(t):(e="undefined"!=typeof globalThis?globalThis:e||self).Panzoom=t()})(this,function(){"undefined"!=typeof window&&(window.NodeList&&!NodeList.prototype.forEach&&(NodeList.prototype.forEach=Array.prototype.forEach),"function"!=typeof window.CustomEvent)&&(window.CustomEvent=function(e,t){t=t||{bubbles:!1,cancelable:!1,detail:null};var n=document.createEvent("CustomEvent");return n.initCustomEvent(e,t.bubbles,t.cancelable,t.detail),n});let i="undefined"!=typeof document&&!!document.documentMode,a;let l=["webkit","moz","ms"],s={};function z(e){if(s[e])return s[e];var t=a=a||document.createElement("div").style;if(e in t)return s[e]=e;var n=e[0].toUpperCase()+e.slice(1);let o=l.length;for(;o--;){var r=""+l[o]+n;if(r in t)return s[e]=r}}function r(e,t){return parseFloat(t[z(e)])||0}function c(e,t,n=window.getComputedStyle(e)){var o="border"===t?"Width":"";return{left:r(t+"Left"+o,n),right:r(t+"Right"+o,n),top:r(t+"Top"+o,n),bottom:r(t+"Bottom"+o,n)}}function X(e,t,n){e.style[z(t)]=n}function Y(e){let t=e.parentNode;t&&1===t.nodeType||(t=document.documentElement);var n=window.getComputedStyle(e),o=window.getComputedStyle(t),r=e.getBoundingClientRect(),a=t.getBoundingClientRect();return{elem:{style:n,width:r.width,height:r.height,top:r.top,bottom:r.bottom,left:r.left,right:r.right,margin:c(e,"margin",n),border:c(e,"border",n)},parent:{style:o,width:a.width,height:a.height,top:a.top,bottom:a.bottom,left:a.left,right:a.right,padding:c(t,"padding",o),border:c(t,"border",o)}}}let C={down:"mousedown",move:"mousemove",up:"mouseup mouseleave"};function N(e,t,n,o){C[e].split(" ").forEach(e=>{t.addEventListener(e,n,o)})}function T(e,t,n){C[e].split(" ").forEach(e=>{t.removeEventListener(e,n)})}function $(e,t){let n=e.length;for(;n--;)if(e[n].pointerId===t.pointerId)return n;return-1}function L(e,t){let n;if(t.touches){n=0;for(var o of t.touches)o.pointerId=n++,L(e,o)}else-1<(n=$(e,t))&&e.splice(n,1),e.push(t)}function V(e){let t=(e=e.slice(0)).pop();for(var n;n=e.pop();)t={clientX:(n.clientX-t.clientX)/2+t.clientX,clientY:(n.clientY-t.clientY)/2+t.clientY};return t}function G(e){var t;return e.length<2?0:(t=e[0],e=e[1],Math.sqrt(Math.pow(Math.abs(e.clientX-t.clientX),2)+Math.pow(Math.abs(e.clientY-t.clientY),2)))}"undefined"!=typeof window&&("function"==typeof window.PointerEvent?C={down:"pointerdown",move:"pointermove",up:"pointerup pointerleave pointercancel"}:"function"==typeof window.TouchEvent&&(C={down:"touchstart",move:"touchmove",up:"touchend touchcancel"}));let I=/^http:[\w\.\/]+svg$/;
+/**
+   * Panzoom for panning and zooming elements using CSS transforms
+   * https://github.com/timmywil/panzoom
+   *
+   * Copyright Timmy Willison and other contributors
+   * Released under the MIT license
+   * https://github.com/timmywil/panzoom/blob/main/MIT-License.txt
+   *
+   */
+let R={animate:!1,canvas:!1,cursor:"move",disablePan:!1,disableZoom:!1,disableXAxis:!1,disableYAxis:!1,duration:200,easing:"ease-in-out",exclude:[],excludeClass:"panzoom-exclude",handleStartEvent:e=>{e.preventDefault(),e.stopPropagation()},maxScale:4,minScale:.125,overflow:"hidden",panOnlyWhenZoomed:!1,pinchAndPan:!1,relative:!1,setTransform:function(e,{x:t,y:n,scale:o,isSVG:r},a){X(e,"transform",`scale(${o}) translate(${t}px, ${n}px)`),r&&i&&(o=window.getComputedStyle(e).getPropertyValue("transform"),e.setAttribute("transform",o))},startX:0,startY:0,startScale:1,step:.3,touchAction:"none"};function e(d,p){if(!d)throw new Error("Panzoom requires an element as an argument");if(1!==d.nodeType)throw new Error("Panzoom requires an element with a nodeType of 1");if(!(e=>{let t=e;for(;t&&t.parentNode;){if(t.parentNode===document)return 1;t=t.parentNode instanceof ShadowRoot?t.parentNode.host:t.parentNode}})(d))throw new Error("Panzoom should be called on elements that have been attached to the DOM");p=Object.assign(Object.assign({},R),p);e=d;let c=I.test(e.namespaceURI)&&"svg"!==e.nodeName.toLowerCase();var e;let n=d.parentNode;n.style.overflow=p.overflow,n.style.userSelect="none",n.style.touchAction=p.touchAction,(p.canvas?n:d).style.cursor=p.cursor,d.style.userSelect="none",d.style.touchAction=p.touchAction,X(d,"transformOrigin","string"==typeof p.origin?p.origin:c?"0 0":"50% 50%");let u=0,m=0,f=1,a=!1;function r(e,t,n){n.silent||(n=new CustomEvent(e,{detail:t}),d.dispatchEvent(n))}function l(t,n,e){let o={x:u,y:m,scale:f,isSVG:c,originalEvent:e};return requestAnimationFrame(()=>{var e;"boolean"==typeof n.animate&&(n.animate?(e=n,X(d,"transition",`${z("transform")} ${e.duration}ms `+e.easing)):X(d,"transition","none")),n.setTransform(d,o,n),r(t,o,n),r("panzoomchange",o,n)}),o}function s(e,t,n,o){var r,a,i,l,s=Object.assign(Object.assign({},p),o),c={x:u,y:m,opts:s};return(null!=o&&o.force||!(s.disablePan||s.panOnlyWhenZoomed&&f===s.startScale))&&(e=parseFloat(e),t=parseFloat(t),s.disableXAxis||(c.x=(s.relative?u:0)+e),s.disableYAxis||(c.y=(s.relative?m:0)+t),s.contain&&(e=((t=(e=(o=Y(d)).elem.width/f)*n)-e)/2,a=((r=(a=o.elem.height/f)*n)-a)/2,"inside"===s.contain?(i=(-o.elem.margin.left-o.parent.padding.left+e)/n,l=(o.parent.width-t-o.parent.padding.left-o.elem.margin.left-o.parent.border.left-o.parent.border.right+e)/n,c.x=Math.max(Math.min(c.x,l),i),l=(-o.elem.margin.top-o.parent.padding.top+a)/n,i=(o.parent.height-r-o.parent.padding.top-o.elem.margin.top-o.parent.border.top-o.parent.border.bottom+a)/n,c.y=Math.max(Math.min(c.y,i),l)):"outside"===s.contain&&(i=(-(t-o.parent.width)-o.parent.padding.left-o.parent.border.left-o.parent.border.right+e)/n,l=(e-o.parent.padding.left)/n,c.x=Math.max(Math.min(c.x,l),i),t=(-(r-o.parent.height)-o.parent.padding.top-o.parent.border.top-o.parent.border.bottom+a)/n,e=(a-o.parent.padding.top)/n,c.y=Math.max(Math.min(c.y,e),t))),s.roundPixels)&&(c.x=Math.round(c.x),c.y=Math.round(c.y)),c}function h(n,o){var r,a=Object.assign(Object.assign({},p),o),i={scale:f,opts:a};if(null!=o&&o.force||!a.disableZoom){let e=p.minScale,t=p.maxScale;a.contain&&(a=(o=Y(d)).elem.width/f,r=o.elem.height/f,1<a)&&1<r&&(a=(o.parent.width-o.parent.border.left-o.parent.border.right)/a,o=(o.parent.height-o.parent.border.top-o.parent.border.bottom)/r,"inside"===p.contain?t=Math.min(t,a,o):"outside"===p.contain&&(e=Math.max(e,a,o))),i.scale=Math.min(Math.max(n,e),t)}return i}function i(e,t,n,o){e=s(e,t,f,n);return u!==e.x||m!==e.y?(u=e.x,m=e.y,l("panzoompan",e.opts,o)):{x:u,y:m,scale:f,isSVG:c,originalEvent:o}}function g(n,o,r){var a=h(n,o),i=a.opts;if(null!=o&&o.force||!i.disableZoom){n=a.scale;let e=u,t=m;i.focal&&(o=i.focal,e=(o.x/n-o.x/f+u*n)/n,t=(o.y/n-o.y/f+m*n)/n);a=s(e,t,n,{relative:!1,force:!0});return u=a.x,m=a.y,f=n,l("panzoomzoom",i,r)}}function t(e,t){t=Object.assign(Object.assign(Object.assign({},p),{animate:!0}),t);return g(f*Math.exp((e?1:-1)*t.step),t)}function v(e,t,n,o){var r=Y(d);const a=r.parent.width-r.parent.padding.left-r.parent.padding.right-r.parent.border.left-r.parent.border.right,i=r.parent.height-r.parent.padding.top-r.parent.padding.bottom-r.parent.border.top-r.parent.border.bottom;let l=t.clientX-r.parent.left-r.parent.padding.left-r.parent.border.left-r.elem.margin.left,s=t.clientY-r.parent.top-r.parent.padding.top-r.parent.border.top-r.elem.margin.top;c||(l-=r.elem.width/f/2,s-=r.elem.height/f/2);t={x:l/a*(a*e),y:s/i*(i*e)};return g(e,Object.assign(Object.assign({},n),{animate:!1,focal:t}),o)}g(p.startScale,{animate:!1,force:!0}),setTimeout(()=>{i(p.startX,p.startY,{animate:!1,force:!0})});let y,b,w,x,O,E,S=[];function o(e){((t,n)=>{for(let e=t;null!=e;e=e.parentNode)if(o=e,r=n.excludeClass,1===o.nodeType&&-1<` ${o=o,(o.getAttribute("class")||"").trim()} `.indexOf(` ${r} `)||-1<n.exclude.indexOf(e))return 1;var o,r})(e.target,p)||(L(S,e),a=!0,p.handleStartEvent(e),y=u,b=m,r("panzoomstart",{x:u,y:m,scale:f,isSVG:c,originalEvent:e},p),e=V(S),w=e.clientX,x=e.clientY,O=f,E=G(S))}function M(t){if(a&&void 0!==y&&void 0!==b&&void 0!==w&&void 0!==x){L(S,t);var n,o=V(S),r=1<S.length;let e=f;r&&(0===E&&(E=G(S)),n=G(S)-E,v(e=h(n*p.step/80+O).scale,o,{animate:!1},t)),r&&!p.pinchAndPan||i(y+(o.clientX-w)/e,b+(o.clientY-x)/e,{animate:!1},t)}}function A(e){1===S.length&&r("panzoomend",{x:u,y:m,scale:f,isSVG:c,originalEvent:e},p);var t=S;if(e.touches)for(;t.length;)t.pop();else{e=$(t,e);-1<e&&t.splice(e,1)}a&&(a=!1,y=b=w=x=void 0)}let P=!1;function j(){P||(P=!0,N("down",p.canvas?n:d,o),N("move",document,M,{passive:!0}),N("up",document,A,{passive:!0}))}return p.noBind||j(),{bind:j,destroy:function(){P=!1,T("down",p.canvas?n:d,o),T("move",document,M),T("up",document,A)},eventNames:C,getPan:()=>({x:u,y:m}),getScale:()=>f,getOptions:()=>{var e,t=p,n={};for(e in t)t.hasOwnProperty(e)&&(n[e]=t[e]);return n},handleDown:o,handleMove:M,handleUp:A,pan:i,reset:function(e){var e=Object.assign(Object.assign(Object.assign({},p),{animate:!0,force:!0}),e),t=(f=h(e.startScale,e).scale,s(e.startX,e.startY,f,e));return u=t.x,m=t.y,l("panzoomreset",e)},resetStyle:function(){n.style.overflow="",n.style.userSelect="",n.style.touchAction="",n.style.cursor="",d.style.cursor="",d.style.userSelect="",d.style.touchAction="",X(d,"transformOrigin","")},setOptions:function(e={}){for(var t in e)e.hasOwnProperty(t)&&(p[t]=e[t]);(e.hasOwnProperty("cursor")||e.hasOwnProperty("canvas"))&&(n.style.cursor=d.style.cursor="",(p.canvas?n:d).style.cursor=p.cursor),e.hasOwnProperty("overflow")&&(n.style.overflow=e.overflow),e.hasOwnProperty("touchAction")&&(n.style.touchAction=e.touchAction,d.style.touchAction=e.touchAction)},setStyle:(e,t)=>X(d,e,t),zoom:g,zoomIn:function(e){return t(!0,e)},zoomOut:function(e){return t(!1,e)},zoomToPoint:v,zoomWithWheel:function(e,t){e.preventDefault();var t=Object.assign(Object.assign(Object.assign({},p),t),{animate:!1}),n=(0===e.deltaY&&e.deltaX?e.deltaX:e.deltaY)<0?1:-1;return v(h(f*Math.exp(n*t.step/3),t).scale,e,t,e)}}}return e.defaultOptions=R,e});
+</script>
+<script>
+ // Index page of the report: the graph, plus a "drawer" showing a node page (or
+// a source file) in an iframe next to it.
+//
+// This script controls what is displayed in the iframe. The browser's back
+// button must leave the report rather than step through nodes, so the iframe is
+// always navigated with location.replace(), which adds no history entry.
+// When a link to another node ("previous", "next", ...) is clicked in the
+// node iframe, the event is captured and a message is posted so the navigation
+// can be handled here (see report-navigation.js).
+//
+// The URL hash is kept up to date with replaceState so the URL for a specific
+// node can be shared.
+//
+// The browser keeps displaying the previous node until the next one is ready.
+//
+// A source file is displayed in a second iframe, on top of the node iframe, so
+// that the node page is still there, as we left it, when we come back. It is
+// displayed once it has loaded, so that nothing flashes either.
+//
+(function() {
+    //
+    // Navigation
+    // ----------
+    //
+    const drawer = document.getElementById('drawer');
+    const nodeFrame = document.getElementById('node-frame');
+    let sourceFrame = document.getElementById('source-frame');
+    const graphPanel = document.getElementById('graph-panel');
+    const toggleGraphButton = document.getElementById('toggle-nav');
+    // The current node is highlighted with a CSS rule rather than by editing
+    // the graph, so that it works whether the graph was drawn by python or is
+    // drawn later by the browser (in which case it may still be rendering).
+    const highlightStyle = document.getElementById('current-node-style');
+    const totalNNodes = Number(document.body.dataset.totalNodes);
+
+    // An empty page, with a doctype so that it is rendered in standards mode.
+    const EMPTY_PAGE = 'data:text/html,<!DOCTYPE html><title></title>';
+
+    function navigate(frame, url) {
+        frame.contentWindow.location.replace(new URL(url, window.location.href));
+    }
+
+    // Button that shows or hides the graph panel.
+    function setGraphOpen(isOpen) {
+        graphPanel.toggleAttribute('data-is-open', isOpen);
+        toggleGraphButton.setAttribute('aria-expanded', String(isOpen));
+        toggleGraphButton.textContent = isOpen ? 'Hide graph' : 'Show graph';
+    }
+
+    function nodeIdFromHash() {
+        const match = /^#node_(\d+)$/.exec(window.location.hash);
+        if (!match || Number(match[1]) >= totalNNodes) {
+            return null;
+        }
+        return Number(match[1]);
+    }
+
+    // Keep the URL shareable (index.html#node_3) without adding history entries.
+    function updateState(nodeId) {
+        document.body.classList.toggle('drawer-open', nodeId !== null);
+        // Never leave the page empty: without a node there is nothing to show
+        // but the graph.
+        toggleGraphButton.disabled = nodeId === null;
+        if (nodeId === null) {
+            setGraphOpen(true);
+        }
+        highlightStyle.textContent = nodeId === null ? '' : (
+            `#node_${nodeId} polygon {` +
+            ' fill: var(--current-node-color); stroke-width: 3; }');
+        const hash = nodeId === null ? '' : `#node_${nodeId}`;
+        if (window.location.hash !== hash) {
+            const url = new URL(window.location.href);
+            url.hash = hash;
+            window.history.replaceState(null, '', url.href);
+        }
+    }
+
+    function openNode(nodeId) {
+        closeSource();
+        navigate(nodeFrame, `node_${nodeId}.html`);
+        updateState(nodeId);
+    }
+
+    // The source page is loaded in a new iframe, which replaces the previous one
+    // and is displayed (instead of the node page) once loaded. A new iframe is
+    // needed because navigating one that shows the same page (or another line of
+    // it) fires no load event. Dropping the previous iframe also drops its
+    // events: there is nothing to cancel if the user goes elsewhere while the
+    // page loads.
+    function replaceSourceFrame(url) {
+        const frame = document.createElement('iframe');
+        frame.id = 'source-frame';
+        frame.title = 'Source code';
+        if (url !== null) {
+            frame.addEventListener('load', () => {
+                drawer.dataset.mode = 'source';
+                // so that keyboard navigation continues in the page displayed
+                // (the frame can only be focused once it is visible)
+                frame.focus();
+            }, {once: true});
+            frame.src = new URL(url, window.location.href).href;
+        }
+        sourceFrame.replaceWith(frame);
+        sourceFrame = frame;
+    }
+
+    function openSource(url) {
+        replaceSourceFrame(url);
+    }
+
+    function closeSource() {
+        replaceSourceFrame(null);
+        drawer.dataset.mode = 'node';
+    }
+
+    function closeDrawer() {
+        closeSource();
+        // do not show this page again if the drawer is reopened
+        // (not 'about:blank': it has no doctype, so browsers render it in quirks
+        // mode and log a warning in the console)
+        navigate(nodeFrame, EMPTY_PAGE);
+        updateState(null);
+    }
+
+    document.getElementById('close-drawer').addEventListener('click', closeDrawer);
+    document.getElementById('back-to-node').addEventListener('click', () => {
+        closeSource();
+        nodeFrame.focus();
+    });
+
+    // Node pages ask us to display the node or source file their links point to.
+    window.addEventListener('message', (event) => {
+        if (event.source !== nodeFrame.contentWindow ||
+            !event.data || event.data.type !== 'skrub-report-link') {
+            return;
+        }
+        const href = String(event.data.href);
+        const node = /^node_(\d+)\.html$/.exec(href);
+        if (node) {
+            openNode(Number(node[1]));
+        } else if (/^python\/[\w-]+\.html(#L\d+)?$/.test(href)) {
+            openSource(href);
+        }
+    });
+
+    // Graph nodes link to a hash such as "#node_3". We handle the click
+    // ourselves because the default action would add a history entry. The
+    // links are in an svg, where the attribute may be xlink:href.
+    document.getElementById('graph-nav').addEventListener('click', (event) => {
+        const link = event.target.closest('a');
+        const href = link && (link.getAttribute('href') ||
+            link.getAttributeNS('http://www.w3.org/1999/xlink', 'href'));
+        const match = /^#node_(\d+)$/.exec(href);
+        if (match && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+            event.preventDefault();
+            openNode(Number(match[1]));
+        }
+    });
+
+    // The hash is edited by hand in the address bar of an open report. Our own
+    // updates (replaceState) do not trigger this event.
+    window.addEventListener('hashchange', () => {
+        const nodeId = nodeIdFromHash();
+        if (nodeId !== null) {
+            openNode(nodeId);
+        } else if (window.location.hash === '') {
+            closeDrawer();
+        }
+    });
+    if (nodeIdFromHash() !== null) {
+        openNode(nodeIdFromHash());
+    }
+
+    toggleGraphButton.addEventListener('click', () => {
+        setGraphOpen(!graphPanel.hasAttribute('data-is-open'));
+    });
+
+    //
+    // Splitter
+    // --------
+    //
+    // Splitter between the graph and the drawer. Its position is stored as the
+    // width of the graph panel in percent of the total width (CSS variable
+    // --graph-width), so that it scales with the window. Pointer capture sends
+    // the events to the splitter even when the pointer is over an iframe.
+    const splitter = document.getElementById('splitter');
+    const panels = splitter.parentElement;
+    const MIN_PANEL_WIDTH = 160;
+    const KEYBOARD_STEP = 2;
+    let graphWidthPercent = 50;
+
+    function setGraphWidth(percent) {
+        const total = panels.clientWidth;
+        const minPercent = total > 2 * MIN_PANEL_WIDTH ?
+            100 * MIN_PANEL_WIDTH / total : 0;
+        graphWidthPercent = Math.min(100 - minPercent, Math.max(minPercent, percent));
+        panels.style.setProperty('--graph-width', `${graphWidthPercent}%`);
+        splitter.setAttribute('aria-valuenow', String(Math.round(graphWidthPercent)));
+    }
+
+    let grabOffset = null;
+    splitter.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) {
+            return;
+        }
+        event.preventDefault();
+        splitter.setPointerCapture(event.pointerId);
+        grabOffset = event.clientX - splitter.getBoundingClientRect().left;
+        splitter.classList.add('dragging');
+        document.body.classList.add('resizing');
+    });
+    splitter.addEventListener('pointermove', (event) => {
+        if (grabOffset === null) {
+            return;
+        }
+        const rect = panels.getBoundingClientRect();
+        if (rect.width === 0) {
+            return;
+        }
+        setGraphWidth(100 * (event.clientX - grabOffset - rect.left) / rect.width);
+    });
+    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        splitter.addEventListener(name, () => {
+            grabOffset = null;
+            splitter.classList.remove('dragging');
+            document.body.classList.remove('resizing');
+        });
+    }
+    splitter.addEventListener('keydown', (event) => {
+        const direction = {ArrowLeft: -1, ArrowRight: 1}[event.key];
+        if (direction !== undefined) {
+            event.preventDefault();
+            setGraphWidth(graphWidthPercent + direction * KEYBOARD_STEP);
+        }
+    });
+    splitter.addEventListener('dblclick', () => setGraphWidth(50));
+    setGraphWidth(graphWidthPercent);
+
+    //
+    // Pan & zoom
+    // ----------
+    //
+    // Pan and zoom of the graph, with the Panzoom library (included in the page).
+    // - drag: pan; buttons: zoom; Ctrl (or Cmd) + wheel, or trackpad pinch: zoom
+    //   at the pointer; wheel: pan, as the graph used to scroll before. Pinching on
+    //   a touchscreen is disabled (see below).
+    // - a drag must not click the node it ends on.
+    const graphNav = document.getElementById('graph-nav');
+    const graphCanvas = document.getElementById('graph-canvas');
+    const MIN_SCALE = 0.05;
+    const MAX_SCALE = 4;
+    // Zoom per pixel of wheel movement: a classic mouse wheel notch (100 px)
+    // zooms by 10%, and the small deltas of a trackpad pinch zoom smoothly.
+    const ZOOM_PER_PIXEL = Math.log(1.1) / 100;
+    const MAX_WHEEL_ZOOM_DELTA = 100;
+    const LINE_HEIGHT = 16;
+    const panzoom = Panzoom(graphCanvas, {
+        origin: '0 0', canvas: true, cursor: 'inherit',
+        minScale: MIN_SCALE, maxScale: MAX_SCALE,
+    });
+
+    function setView(scale, x, y) {
+        panzoom.zoom(scale, {animate: false});
+        panzoom.pan(x, y, {animate: false});
+    }
+
+    // Initial view, and what the Reset button goes back to: the whole graph
+    // fits the panel (never enlarged), in its top left corner.
+    function resetView() {
+        const w = graphCanvas.offsetWidth, h = graphCanvas.offsetHeight;
+        const vw = graphNav.clientWidth, vh = graphNav.clientHeight;
+        if (!w || !h) {
+            return;
+        }
+        const scale = Math.max(Math.min(vw / w, vh / h, 1), MIN_SCALE);
+        setView(scale, 0, 0);
+    }
+
+    // Zoom keeping the point of the graph under (clientX, clientY) in place. We do
+    // it ourselves because the transform origin is the top left corner: the
+    // point under the pointer is at `p / scale - pan` in the graph's coordinates
+    // (p being the position in the viewport), and that must not change.
+    function zoomAround(factor, clientX, clientY) {
+        const rect = graphNav.getBoundingClientRect();
+        const px = clientX - rect.left - graphNav.clientLeft;
+        const py = clientY - rect.top - graphNav.clientTop;
+        const oldScale = panzoom.getScale();
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * factor));
+        const pan = panzoom.getPan();
+        setView(newScale,
+                pan.x + px / newScale - px / oldScale,
+                pan.y + py / newScale - py / oldScale);
+    }
+
+    // Zoom for the buttons, around the center of the part of the graph that is
+    // visible: zooming around the center of the panel would push a graph smaller
+    // than the panel (or not centered in it) away from the center, possibly out
+    // of view.
+    function zoomAtCenter(factor) {
+        const scale = panzoom.getScale();
+        const pan = panzoom.getPan();
+        const center = (start, size, viewportSize) => {
+            const lo = Math.max(0, start * scale);
+            const hi = Math.min(viewportSize, (start + size) * scale);
+            return lo < hi ? (lo + hi) / 2 : viewportSize / 2;
+        };
+        const rect = graphNav.getBoundingClientRect();
+        zoomAround(factor,
+                   rect.left + graphNav.clientLeft + center(
+                       pan.x, graphCanvas.offsetWidth, graphNav.clientWidth),
+                   rect.top + graphNav.clientTop + center(
+                       pan.y, graphCanvas.offsetHeight, graphNav.clientHeight));
+    }
+
+    // Wheel deltas in pixels. Depending on the browser and device they can be
+    // given in lines or pages (deltaMode) rather than pixels.
+    function wheelDeltaPixels(event) {
+        let factorX = 1, factorY = 1;
+        if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+            factorX = factorY = LINE_HEIGHT;
+        } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+            factorX = graphNav.clientWidth;
+            factorY = graphNav.clientHeight;
+        }
+        return {x: event.deltaX * factorX, y: event.deltaY * factorY};
+    }
+
+    graphNav.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        const delta = wheelDeltaPixels(event);
+        if (event.ctrlKey || event.metaKey) {
+            // also what browsers send for a trackpad pinch
+            const amount = Math.max(
+                -MAX_WHEEL_ZOOM_DELTA, Math.min(MAX_WHEEL_ZOOM_DELTA, delta.y));
+            zoomAround(Math.exp(-amount * ZOOM_PER_PIXEL),
+                       event.clientX, event.clientY);
+        } else {
+            const scale = panzoom.getScale();
+            const pan = panzoom.getPan();
+            panzoom.pan(pan.x - delta.x / scale, pan.y - delta.y / scale,
+                        {animate: false});
+        }
+    }, {passive: false});
+
+    // No pinch-to-zoom on touchscreens (use the buttons): Panzoom's own pinch
+    // handling assumes a centered transform origin, so with ours (top left) it
+    // zooms far too fast and in the wrong direction. Panzoom starts a pinch when it
+    // sees a second pointer, so we hide the extra touches from it (a single
+    // finger still pans). Window-level capture listeners run before Panzoom's.
+    const ignoredTouches = new Set();
+    for (const name of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+        window.addEventListener(name, (event) => {
+            if (event.pointerType !== 'touch') {
+                return;
+            }
+            if (name === 'pointerdown' && !event.isPrimary
+                && graphNav.contains(event.target)) {
+                ignoredTouches.add(event.pointerId);
+            }
+            // While several fingers are down, nothing moves (the first finger
+            // would otherwise pan the graph during a pinch).
+            if (ignoredTouches.has(event.pointerId)
+                || (name === 'pointermove' && ignoredTouches.size > 0)) {
+                event.stopImmediatePropagation();
+                if (name === 'pointerup' || name === 'pointercancel') {
+                    ignoredTouches.delete(event.pointerId);
+                }
+            }
+        }, true);
+    }
+
+    // Do not treat the end of a drag as a click on a node.
+    let pointerDownAt = null;
+    let dragged = false;
+    graphNav.addEventListener('pointerdown', (event) => {
+        pointerDownAt = {x: event.clientX, y: event.clientY};
+        dragged = false;
+        graphNav.classList.add('panning');
+    });
+    graphNav.addEventListener('pointermove', (event) => {
+        if (pointerDownAt && Math.hypot(
+            event.clientX - pointerDownAt.x, event.clientY - pointerDownAt.y) > 4) {
+            dragged = true;
+        }
+    });
+    for (const name of ['pointerup', 'pointercancel']) {
+        document.addEventListener(name, () => {
+            pointerDownAt = null;
+            graphNav.classList.remove('panning');
+            // The click (if any) is dispatched right after pointerup. If the
+            // pointer was released elsewhere there is none: do not let the flag
+            // swallow a later click.
+            setTimeout(() => { dragged = false; }, 0);
+        });
+    }
+    graphNav.addEventListener('click', (event) => {
+        if (dragged) {
+            event.preventDefault();
+            event.stopPropagation();
+            dragged = false;
+        }
+    }, true);
+
+    document.getElementById('zoom-in').addEventListener('click', () => zoomAtCenter(1.5));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomAtCenter(1 / 1.5));
+    document.getElementById('zoom-reset').addEventListener('click', resetView);
+
+    // The size of the graph is known once it is drawn (immediately, unless the
+    // browser draws it). Panzoom resets the pan in a timeout of its own when it is
+    // created, so we must wait for it.
+    setTimeout(resetView, 0);
+    graphNav.addEventListener('graph-rendered', resetView);
+})();
+</script>
+
+</html>
