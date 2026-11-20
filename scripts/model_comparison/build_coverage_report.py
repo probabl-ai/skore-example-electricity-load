@@ -91,9 +91,7 @@ def enrich(records, min_coverage, tolerance):
         levels = quantile_levels_of(df, horizons[0]) if horizons else []
         q_low = pick_level(levels, 0.05)
         q_high = pick_level(levels, 0.95)
-        chosen = [
-            q for q in levels if any(abs(q - t) < 1e-9 for t in PINBALL_LEVELS)
-        ] or levels
+        chosen = [q for q in levels if any(abs(q - t) < 1e-9 for t in PINBALL_LEVELS)]
         record["levels"] = levels
         record["horizons"] = horizons
         record["pinball_h"] = {}

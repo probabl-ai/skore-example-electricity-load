@@ -1,13 +1,16 @@
 """
-Build the feature-group report page from the runs of `compare_groups.py`.
+Build the HTML page comparing models with the selected feature groups against
+the same models with default features (round 2, see
+`results/feature_engineering/round2_selected_groups/README.md`).
 
-    python scripts/feature_engineering/build_report.py DIR
+    python scripts/feature_engineering/build_report.py [DIR]
 
-DIR holds the `hgb_mean_<tag>_{cv_predictions.parquet,metadata.json}` files.
-Writes `DIR/report.html` (tables, plots, provenance).
+DIR defaults to `results/feature_engineering/round2_selected_groups`; it holds
+`<model>/<model>_fg3_{cv_predictions.parquet,metadata.json}`. The earlier runs
+with default features are read from `results/model_comparison/`. Writes
+`DIR/report.html` (same paired-bootstrap code as `compare_runs.py`).
 """
 
-import argparse
 import html
 import json
 import sys
@@ -19,55 +22,31 @@ import polars as pl
 from plotly.subplots import make_subplots
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "model_comparison"))
-from uncertainty import (  # noqa: E402
-    error_bar,
-    paired_difference,
-    row_index,
-    row_loss,
+from uncertainty import error_bar, paired_difference, row_index, row_loss  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[2]
+DIR = (
+    Path(sys.argv[1])
+    if len(sys.argv) > 1
+    else ROOT / "results/feature_engineering/round2_selected_groups"
 )
-
-parser = argparse.ArgumentParser()
-parser.add_argument("dir", type=Path)
-args = parser.parse_args()
-
+OLD = ROOT / "results/model_comparison"
+OLD_RUNS = {
+    "hgb_mean": "hgb_mean_forecast_safe/hgb_mean_forecast_safe",
+    "hgb_quantile": "hgb_quantile_q7_forecast_safe/hgb_quantile_forecast_safe",
+    "hgb_quantile_recal": "hgb_quantile_recal_q7_forecast_safe/hgb_quantile_recal_forecast_safe",
+    "hgb_quantile_conformal": "hgb_quantile_conformal_q7_forecast_safe/hgb_quantile_conformal_forecast_safe",
+    "tabicl": "tabicl_n8_full_forecast_safe/tabicl_n8_full_forecast_safe",
+    "kumo_tabular": "kumotabular_n8_full_forecast_safe/kumo_tabular_n8_full_forecast_safe",
+}
 HORIZONS = (1, 12, 24)
-COLUMNS = ["avg", *HORIZONS]
+KEYS = ("avg", *HORIZONS)
 COLOURS = {"avg": "#444444", 1: "#1f77b4", 12: "#ff7f0e", 24: "#2ca02c"}
-SINGLE = [
-    "load_diffs",
-    "load_same_hour",
-    "temp_diffs",
-    "load_rolling",
-    "calendar",
-    "temp_national",
-    "school_holidays",
-]
-COMBINED = ["load_diffs+temp_diffs", "load_diffs+load_same_hour+temp_diffs", "all_groups"]
-DESCRIPTIONS = {
-    "load_diffs": "differences between consecutive hourly load lags, and lag_h minus lag_24/48/168",
-    "load_same_hour": "load 1 and 7 days before the same clock hour, and lag_h minus them",
-    "temp_diffs": "national mean temperature change over 24h, 168h and h, and anomalies against 24h/168h means",
-    "load_rolling": "24h mean/min/max of the load, same-hour mean over 7 days, 24h-168h median difference",
-    "calendar": "days to next / since previous holiday, bridge days",
-    "temp_national": "national mean/std temperature, degree days, 24h min/max, 24/72/168h means",
-    "school_holidays": "fraction of school zones A, B, C on vacation",
-    "load_diffs+temp_diffs": "the two groups above",
-    "load_diffs+load_same_hour+temp_diffs": "the three groups above",
-    "all_groups": "all 7 groups",
-}
+CONFIG = {"responsive": True, "displaylogo": False}
 
-frames = {
-    p.name.removeprefix("hgb_mean_").removesuffix("_cv_predictions.parquet"): pl.read_parquet(p).sort(
-        "prediction_time", "split"
-    )
-    for p in args.dir.glob("hgb_mean_*_cv_predictions.parquet")
-}
-metadata = {
-    name: json.loads((args.dir / f"hgb_mean_{name}_metadata.json").read_text())
-    for name in frames
-}
-base = frames["baseline"]
-day, fold = row_index(base)
+
+def read(path):
+    return pl.read_parquet(path).sort("prediction_time", "split")
 
 
 def losses(df, kind):
@@ -75,26 +54,58 @@ def losses(df, kind):
     return per_h | {"avg": np.mean(list(per_h.values()), axis=0)}
 
 
-base_loss = {kind: losses(base, kind) for kind in ("mae", "mape")}
-summary = {
-    kind: {
-        name: {
-            key: paired_difference(loss[key], base_loss[kind][key], day, fold)
-            for key in COLUMNS
-        }
-        for name, df in frames.items()
-        if name != "baseline"
-        for loss in [losses(df, kind)]
+def pinball(df):
+    """Mean pinball loss over the 5/50/95% levels, per horizon and averaged."""
+    per_h = {
+        h: np.mean([row_loss(df, "pinball", h, q) for q in (0.05, 0.5, 0.95)], axis=0)
+        for h in HORIZONS
     }
-    for kind in ("mae", "mape")
-}
-mean_loss = {
-    kind: {name: {k: float(v.mean()) for k, v in losses(df, kind).items()} for name, df in frames.items()}
-    for kind in ("mae", "mape")
-}
+    return per_h | {"avg": np.mean(list(per_h.values()), axis=0)}
 
-order = [n for n in SINGLE + COMBINED if n in frames]
-CONFIG = {"responsive": True, "displaylogo": False}
+
+models = {}
+for name, old in OLD_RUNS.items():
+    new_df = read(DIR / name / f"{name}_fg3_cv_predictions.parquet")
+    old_df = read(OLD / f"{old}_cv_predictions.parquet")
+    assert (new_df["prediction_time"] == old_df["prediction_time"]).all()
+    day, fold = row_index(new_df)
+    entry = {
+        "metadata": json.loads((DIR / name / f"{name}_fg3_metadata.json").read_text())
+    }
+    for kind in ("mae", "mape", "pinball"):
+        if kind == "pinball" and "pred_1h__q_0.05" not in new_df.columns:
+            continue
+        new = losses(new_df, kind) if kind != "pinball" else pinball(new_df)
+        old_l = losses(old_df, kind) if kind != "pinball" else pinball(old_df)
+        entry[kind] = {
+            k: {
+                "old": float(old_l[k].mean()),
+                "new": float(new[k].mean()),
+                **paired_difference(new[k], old_l[k], day, fold),
+            }
+            for k in KEYS
+        }
+    models[name] = entry
+
+
+def cell(s, digits):
+    star = "*" if s["low"] > 0 or s["high"] < 0 else ""
+    return f"{s['old']:.{digits}f} &rarr; {s['new']:.{digits}f} ({s['mean']:+.{digits}f}){star}"
+
+
+def table(kind, unit, digits):
+    rows = "".join(
+        f"<tr><td>{name}</td>"
+        + "".join(f"<td>{cell(m[kind][k], digits)}</td>" for k in KEYS)
+        + f"<td>{m[kind]['avg']['n_lower']}/8</td></tr>"
+        for name, m in models.items()
+        if kind in m
+    )
+    return (
+        f"<table><thead><tr><th>model</th><th>{kind.upper()} ({unit}) average</th>"
+        "<th>1h</th><th>12h</th><th>24h</th><th>folds better (avg)</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
 
 
 def differences_figure():
@@ -102,19 +113,25 @@ def differences_figure():
         rows=1,
         cols=4,
         shared_yaxes=True,
-        subplot_titles=["average", "1h", "12h", "24h"],
         horizontal_spacing=0.03,
+        subplot_titles=["average", "1h", "12h", "24h"],
     )
-    for j, key in enumerate(COLUMNS, 1):
-        s = [summary["mae"][n][key] for n in order]
+    names = list(models)
+    for j, key in enumerate(KEYS, 1):
+        s = [models[n]["mae"][key] for n in names]
         up, down = zip(*(error_bar(x) for x in s))
         fig.add_trace(
             go.Scatter(
                 x=[x["mean"] for x in s],
-                y=order,
+                y=names,
                 mode="markers",
                 marker={"color": COLOURS[key], "size": 9},
-                error_x={"type": "data", "symmetric": False, "array": up, "arrayminus": down},
+                error_x={
+                    "type": "data",
+                    "symmetric": False,
+                    "array": up,
+                    "arrayminus": down,
+                },
                 showlegend=False,
                 hovertemplate="%{y}<br>%{x:+.1f} MW<extra></extra>",
             ),
@@ -125,89 +142,61 @@ def differences_figure():
         fig.update_xaxes(title_text="MAE difference (MW)", row=1, col=j)
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(
-        height=520,
-        title="Paired MAE difference vs baseline (negative is better), 95% block-bootstrap interval",
-        margin={"t": 80, "l": 270, "r": 20},
+        height=420,
+        margin={"t": 80, "l": 190, "r": 20},
+        title="MAE with new features minus MAE with default features (negative is better), 95% block-bootstrap interval",
     )
     return fig
 
 
 def absolute_figure():
-    names = ["baseline", *[n for n in COMBINED + ["load_diffs", "temp_diffs"] if n in frames]]
+    names = list(models)
     fig = go.Figure()
-    for h in HORIZONS:
+    for label, which, colour in (
+        ("default features", "old", "#bbbbbb"),
+        ("selected features", "new", "#1f77b4"),
+    ):
         fig.add_trace(
             go.Bar(
-                name=f"{h}h",
+                name=label,
                 x=names,
-                y=[mean_loss["mae"][n][h] for n in names],
-                marker_color=COLOURS[h],
-                text=[f"{mean_loss['mae'][n][h]:.0f}" for n in names],
+                y=[models[n]["mae"]["avg"][which] for n in names],
+                marker_color=colour,
+                text=[f"{models[n]['mae']['avg'][which]:.0f}" for n in names],
                 textposition="outside",
             )
         )
     fig.update_layout(
         barmode="group",
-        height=450,
-        title="MAE by horizon (MW)",
+        height=430,
+        title="Average MAE over horizons (MW)",
         yaxis_title="MAE (MW)",
-        margin={"t": 70, "b": 120},
-        legend={"orientation": "h", "y": 1.08},
+        margin={"t": 70, "b": 100},
+        legend={"orientation": "h", "y": 1.1},
     )
-    fig.update_xaxes(tickangle=-20)
     return fig
 
 
 def fold_figure():
     fig = go.Figure()
-    folds = np.unique(fold)
-    for name in COMBINED + ["load_diffs", "temp_diffs"]:
-        if name in frames:
-            fig.add_trace(
-                go.Scatter(
-                    x=[int(f) for f in folds],
-                    y=summary["mae"][name]["avg"]["folds"],
-                    mode="lines+markers",
-                    name=name,
-                )
+    for name, m in models.items():
+        fig.add_trace(
+            go.Scatter(
+                x=list(range(8)),
+                y=m["mae"]["avg"]["folds"],
+                mode="lines+markers",
+                name=name,
             )
+        )
     fig.add_hline(y=0, line_color="gray", line_width=1)
-    first = base["prediction_time"].filter(pl.Series(fold) == 0).min().date()
     fig.update_layout(
         height=420,
-        title="Mean MAE difference vs baseline in each CV fold (average over horizons)",
-        xaxis_title=f"CV fold (13-week test blocks, fold 0 starts {first})",
+        title="Mean MAE difference in each CV fold (average over horizons)",
+        xaxis_title="CV fold (13-week test blocks, in time order)",
         yaxis_title="MAE difference (MW)",
         margin={"t": 70},
     )
     return fig
-
-
-def table(kind, unit, digits):
-    fmt = f"{{:+.{digits}f}}"
-
-    def cell(s):
-        star = "*" if s["low"] > 0 or s["high"] < 0 else ""
-        return f"{fmt.format(s['mean'])}{star}"
-
-    rows = [
-        "<tr><td>baseline</td><td>no extra feature</td>"
-        f"<td>{mean_loss[kind]['baseline']['avg']:.{digits}f}</td><td></td><td></td><td></td><td></td><td></td></tr>"
-    ]
-    for n in order:
-        s = summary[kind][n]
-        rows.append(
-            f"<tr><td>{n.replace('+', ' + ')}</td><td>{html.escape(DESCRIPTIONS[n])}</td>"
-            f"<td>{mean_loss[kind][n]['avg']:.{digits}f}</td>"
-            + "".join(f"<td>{cell(s[k])}</td>" for k in COLUMNS)
-            + f"<td>{s['avg']['n_lower']}/{len(s['avg']['folds'])}</td></tr>"
-        )
-    return (
-        "<table><thead><tr><th>feature groups</th><th>what they add</th>"
-        f"<th>{kind.upper()} ({unit})</th><th>diff avg</th><th>diff 1h</th>"
-        "<th>diff 12h</th><th>diff 24h</th><th>folds better</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table>"
-    )
 
 
 def div(fig, first=False):
@@ -216,86 +205,88 @@ def div(fig, first=False):
     )
 
 
-m = metadata["baseline"]
-dirty = ", ".join(m["git_modified_files"]) or "none"
-directory = args.dir.resolve()
-provenance = f"""<ul class="note">
-<li>Source: <code>{html.escape(str(directory))}</code>, one
-<code>hgb_mean_&lt;tag&gt;_cv_predictions.parquet</code> and
-<code>_metadata.json</code> per row (runs {html.escape(', '.join(sorted(frames)))}).
-Built by <code>scripts/feature_engineering/build_report.py</code>; same
-paired-bootstrap code as <code>compare_groups.py</code>.</li>
-<li>Model: <code>hgb_mean</code> (HistGradientBoostingRegressor, defaults as
-resolved: {html.escape(json.dumps(m['pipeline_defaults']))}, max_iter {m['max_iter']}, early stopping),
-horizons {m['horizons']}, one model per horizon, cities: all 10, temperature only.</li>
-<li>Weather: <code>{m['weather_fetcher']}</code> (safe-lead historical forecasts: day1 lead
-for horizons &le; 18h, day2 above). Evaluation range {m['env']['start']} to {m['env']['end']};
-splitter: {html.escape(json.dumps(m['splitter']))}.</li>
-<li>Runs made {m['date'][:10]}; git commit <code>{m['git_commit'][:7]}</code>
-with uncommitted changes: {html.escape(dirty)} (plus untracked
-<code>datasets/school_holidays_fr.csv</code>). Packages:
-{html.escape(', '.join(f'{k} {v}' for k, v in m['versions'].items() if v))}.
-Feature names per horizon are in each metadata file.</li>
-<li>Single run per row (one seed): intervals cover the test period only, not training randomness.</li>
-</ul>"""
-
-best = summary["mae"]["all_groups"]["avg"]["mean"]
-headline = (
-    f"<p>Adding differences of load lags, same-clock-hour load comparisons and temperature "
-    f"changes lowers the average MAE of <code>hgb_mean</code> from "
-    f"{mean_loss['mae']['baseline']['avg']:.0f} to {mean_loss['mae']['all_groups']['avg']:.0f} MW "
-    f"({best:+.0f} MW, MAPE {mean_loss['mape']['baseline']['avg']:.2f}% to "
-    f"{mean_loss['mape']['all_groups']['avg']:.2f}%), better in all 8 CV folds. "
-    "<code>load_diffs</code> helps at 1h and 12h, <code>temp_diffs</code> at 24h. "
-    "National temperature aggregates, degree days, extra rolling statistics, calendar "
-    "distances and school holidays do nothing on their own.</p>"
+runs = "".join(
+    f"<tr><td>{name}</td><td><code>{html.escape(m['metadata']['command'])}</code></td>"
+    f"<td>{m['metadata']['host']['node']}, python {m['metadata']['versions']['python']}, "
+    f"{html.escape(', '.join(f'{k} {v}' for k, v in m['metadata']['versions'].items() if v and k != 'python'))}</td>"
+    f"<td>{m['metadata']['git_commit'][:7]}"
+    f"{' (modified: ' + html.escape(', '.join(m['metadata']['git_modified_files'])) + ')' if m['metadata']['git_modified_files'] else ' (clean)'}</td>"
+    f"<td>{OLD_RUNS[name].split('/')[0]}</td></tr>"
+    for name, m in models.items()
 )
-
-differences = div(differences_figure(), first=True)
+meta = models["hgb_mean"]["metadata"]
 page = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Feature groups for lagged-feature models (hgb_mean)</title>
+<title>Selected feature groups on all lagged-feature models</title>
 <style>
   body {{ font-family: sans-serif; max-width: 1500px; margin: 2em auto; padding: 0 1em; line-height: 1.4; }}
   h1 {{ font-size: 1.6em; }}
   h2 {{ font-size: 1.15em; margin-top: 1.8em; border-bottom: 1px solid #ddd; padding-bottom: 0.2em; }}
   table {{ border-collapse: collapse; width: 100%; margin-bottom: 1em; }}
   th, td {{ border-bottom: 1px solid #ddd; padding: 0.45em; text-align: right; }}
-  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) {{ text-align: left; }}
+  th:first-child, td:first-child {{ text-align: left; }}
+  .runs td {{ text-align: left; font-size: 0.85em; vertical-align: top; }}
   .note {{ color: #555; font-size: 0.9em; }}
 </style>
 </head>
 <body>
-<h1>Feature groups for lagged-feature models (hgb_mean)</h1>
-{headline}
-<p class="note">Each row adds the listed group(s) to the default features
-(<code>--feature_groups</code> of <code>cross_validate_models.py</code>).
-Differences are paired against the baseline run; <code>*</code> = the 95%
-block-bootstrap interval excludes 0. The interval is a 95% moving-block bootstrap
-(14-day blocks over daily differences of the pooled test rows); it is conditional on the
-fitted models and ignores training randomness.</p>
+<h1>Selected feature groups on all lagged-feature models</h1>
+<p>The three feature groups that helped in <a href="round1_hgb_mean.html">round 1</a>
+(<code>load_diffs</code>, <code>load_same_hour</code>, <code>temp_diffs</code>) are added to the
+default features of every lagged-feature model. Each model is compared with its earlier run with
+default features, with the full 8-fold walk-forward CV and safe-lead forecast weather. All
+average differences are significant, and the new features are better in 8/8 folds except TabICL
+(6/8, no gain at 24h). Kumo-Tabular remains the best model (655 vs 757 MW for the best HGB) but
+the gap shrinks.</p>
+<ul>
+<li><code>load_diffs</code>: differences between consecutive hourly load lags, and
+<code>lag_h</code> minus <code>lag_24/48/168</code>.</li>
+<li><code>load_same_hour</code>: load 1 and 7 days before the same clock hour (as extra lags),
+and <code>lag_h</code> minus them.</li>
+<li><code>temp_diffs</code>: national mean temperature change over 24h, 168h and h, and anomalies
+against its 24h / 168h means.</li>
+</ul>
+<p class="note">Cells: default &rarr; new (difference); <code>*</code> = the 95% moving-block
+bootstrap interval of the paired difference (14-day blocks over daily differences of the pooled
+test rows) excludes 0. It covers test-period variability only, not training randomness.
+Pinball is the mean over the 5%, 50% and 95% levels.</p>
 <h2>MAE (MW)</h2>
-{table('mae', 'MW', 1)}
-{differences}
-<h2>MAPE (percentage points)</h2>
-{table('mape', '%', 3)}
+{table("mae", "MW", 1)}
+{div(differences_figure(), first=True)}
+<h2>MAPE (%)</h2>
+{table("mape", "%", 3)}
+<h2>Pinball loss (MW)</h2>
+{table("pinball", "MW", 1)}
 <h2>Absolute errors</h2>
 {div(absolute_figure())}
 <h2>Consistency across folds</h2>
 {div(fold_figure())}
 <h2>Caveats</h2>
 <ul>
-<li>All 7 groups together (773 MW) beat the best 3-group combination (786 MW) although the
-4 other groups are neutral alone; not yet explained (interaction or run-to-run noise).</li>
-<li>Only <code>hgb_mean</code> was run; <code>hgb_quantile</code>, TabICL and Kumo-Tabular are untested.</li>
+<li>The runs with default features were not repeated: they come from other commits, hosts and
+package versions (see their READMEs in <code>results/model_comparison/</code>). The
+<code>hgb_mean</code> result with these groups (786.4 MW) is the same on the dev machine and
+cpu-1, so HGB results do not depend on the host.</li>
+<li>TabICL and Kumo-Tabular ran with torch 2.11.0 where their default-feature runs used 2.15.0,
+and are stochastic ensembles: differences of a few MW may be noise. One run per row, no seed
+repetition.</li>
+<li>The recalibrated and conformal HGBs are still worse than plain <code>hgb_quantile</code> on MAE.</li>
 </ul>
 <h2>Provenance</h2>
-{provenance}
+<p class="note">Built by <code>scripts/feature_engineering/build_report.py</code> from
+<code>{html.escape(str(DIR))}</code> (run date 2026-11-21) and
+<code>{html.escape(str(OLD))}</code>. Evaluation range {meta["env"]["start"]} to {meta["env"]["end"]},
+horizons {meta["horizons"]}, weather <code>{meta["weather_fetcher"]}</code> (day1 lead for
+horizons &le; 18h, day2 above), splitter {html.escape(json.dumps(meta["splitter"]))},
+HGB defaults as resolved {html.escape(json.dumps(meta["pipeline_defaults"]))}, max_iter {meta["max_iter"]}.
+Feature names per horizon are in each <code>*_metadata.json</code>.</p>
+<table class="runs"><thead><tr><th>model</th><th>command</th><th>host and packages</th><th>commit</th><th>compared with (<code>results/model_comparison/</code>)</th></tr></thead>
+<tbody>{runs}</tbody></table>
 </body>
 </html>
 """
-(args.dir / "report.html").write_text(page, "utf-8")
-print(f"wrote {args.dir / 'report.html'}")
+(DIR / "report.html").write_text(page, "utf-8")
+print(f"wrote {DIR / 'report.html'}")

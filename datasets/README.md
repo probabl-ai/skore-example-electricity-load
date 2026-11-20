@@ -42,14 +42,3 @@ The comparison report is written to
 
 Open-Meteo data is licensed under CC BY 4.0. The free API tier is for
 non-commercial use; commercial use requires an Open-Meteo licence.
-
-## School holidays
-
-`school_holidays_fr.csv` lists the Toussaint, Noël, Hiver, Printemps and Été
-school vacations of the French zones A, B and C for the school years
-2020-2021 to 2024-2025 (pupil calendar; teacher-only rows excluded). Each
-vacation spans `[start_utc, end_utc)`. It was downloaded on 2026-11-20 from the
-French Ministry of Education open data API, dataset
-`fr-en-calendrier-scolaire` (https://data.education.gouv.fr, Licence Ouverte
-2.0), keeping the `annee_scolaire` values 2020-2021 to 2024-2025 and one row per
-(zone, vacation). Used by the `school_holidays` feature group.

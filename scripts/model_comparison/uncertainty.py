@@ -58,13 +58,12 @@ def row_loss(df, kind, h, q=None):
 
 def average_row_loss(df, kind):
     """Per-row loss averaged over horizons (and, for pinball, over the
-    5/50/95% quantiles, or all available levels if these are missing)."""
+    5/50/95% quantiles; None without them)."""
     hs = horizons_of(df)
     if kind == "mape":
         return np.mean([row_loss(df, "mape", h) for h in hs], axis=0)
     levels = quantile_levels_of(df, hs[0])
     chosen = [q for q in levels if any(abs(q - t) < 1e-9 for t in PINBALL_LEVELS)]
-    chosen = chosen or levels
     if not chosen:
         return None
     return np.mean([row_loss(df, "pinball", h, q) for h in hs for q in chosen], axis=0)

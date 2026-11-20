@@ -11,7 +11,12 @@ from pathlib import Path
 import numpy as np
 import plotly.graph_objects as go
 import polars as pl
-from compare_predictions import compute_scores, horizons_of, quantile_levels_of
+from compare_predictions import (
+    compute_scores,
+    horizons_of,
+    quantile_levels_of,
+    read_predictions,
+)
 from sklearn.metrics import mean_pinball_loss
 from uncertainty import (
     INTERVAL_NOTE,
@@ -71,8 +76,6 @@ def average_pinball_loss(df):
         q for q in levels if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
     ]
     if not chosen:
-        chosen = levels
-    if not chosen:
         return None
     losses = []
     for h in hs:
@@ -88,7 +91,7 @@ def load_records(directory, source):
     records = []
     for path in sorted(directory.glob("*_cv_predictions.parquet")):
         name = path.stem.removesuffix("_cv_predictions")
-        df = pl.read_parquet(path).sort("prediction_time")
+        df = read_predictions(path).sort("prediction_time")
         splits = sorted(df["split"].unique().to_list())
         fold_scores = [
             compute_scores(df.filter(pl.col("split") == split)) for split in splits

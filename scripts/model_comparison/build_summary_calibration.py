@@ -16,8 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-import polars as pl
 from build_calibration_report import check_horizons, fig_by_level, fig_interval
+from compare_predictions import read_predictions
 from model_registry import model_colour
 
 from electricity_load_forecasting import diagnostics as dg
@@ -42,7 +42,7 @@ def load_models(directory, wanted):
         path = directory / f"{name}_cv_predictions.parquet"
         if not path.exists():
             raise SystemExit(f"missing {path}")
-        df = pl.read_parquet(path)
+        df = read_predictions(path)
         if not dg.pred_columns(df):
             print(f"skipping {name}: no quantile predictions")
             continue

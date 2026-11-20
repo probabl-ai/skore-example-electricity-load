@@ -27,7 +27,9 @@ parser.add_argument(
     choices=["hgb_mean", "hgb_quantile", "tabicl", "binning"],
 )
 parser.add_argument("--recalibrate", action="store_true")
-parser.add_argument("--feature_groups", nargs="*", choices=elf.FEATURE_GROUPS, default=[])
+parser.add_argument(
+    "--feature_groups", nargs="*", choices=elf.FEATURE_GROUPS, default=[]
+)
 args = parser.parse_args()
 
 name = args.model
@@ -49,12 +51,18 @@ pred.skb.report(environment=env, output_dir=output_dir, overwrite=True)
 
 
 def git(*cmd):
-    return subprocess.run(["git", *cmd], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(
+        ["git", *cmd], cwd=ROOT, capture_output=True, text=True
+    ).stdout.strip()
 
 
 def skrub_source():
     url = json.loads(md.distribution("skrub").read_text("direct_url.json") or "{}")
-    return url.get("url", "PyPI release") + "@" + url.get("vcs_info", {}).get("commit_id", "")
+    return (
+        url.get("url", "PyPI release")
+        + "@"
+        + url.get("vcs_info", {}).get("commit_id", "")
+    )
 
 
 make_data_op_defaults = {
@@ -69,23 +77,22 @@ resolved = make_data_op_defaults | {
 }
 (output_dir / "README.md").write_text(f"""# skrub report `{output_dir.name}`
 
-Built without any CV: only the DataOp graph and its previews on `{env['start']}`
-to `{env['end']}`.
+Built without any CV: only the DataOp graph and its previews on `{env["start"]}`
+to `{env["end"]}`.
 
-- Command: `{' '.join(['python', *sys.argv])}` (from the repository root)
-- Date: {datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
-- Git commit: {git('rev-parse', 'HEAD')}; modified files (untracked excluded):
-  {git('status', '--porcelain', '--untracked-files=no').replace(chr(10), ', ') or 'none (clean)'}
+- Command: `{" ".join(["python", *sys.argv])}` (from the repository root)
+- Date: {datetime.datetime.now().astimezone().isoformat(timespec="seconds")}
+- Git commit: {git("rev-parse", "HEAD")}; modified files (untracked excluded):
+  {git("status", "--porcelain", "--untracked-files=no").replace(chr(10), ", ") or "none (clean)"}
 - Host: {platform.node()}, {platform.processor() or platform.machine()}
-- Packages: python {platform.python_version()}, polars {md.version('polars')},
-  scikit-learn {md.version('scikit-learn')}, skrub {md.version('skrub')}
+- Packages: python {platform.python_version()}, polars {md.version("polars")},
+  scikit-learn {md.version("scikit-learn")}, skrub {md.version("skrub")}
   (installed from {skrub_source()})
 - Weather: default `{elf.fetch_city_weather_forecast.__name__}` (historical
   forecasts, day1 lead for horizons <= 18h, day2 above); load from
-  `{elf.fetch_load_mw_history.__name__}`; school holidays from
-  `fetch_school_holidays`; public holidays from `holidays.country_holidays("FR")`
+  `{elf.fetch_load_mw_history.__name__}`; public holidays from `holidays.country_holidays("FR")`
 - Evaluation range (`get_env()`): {env}
-- Feature groups: {args.feature_groups or 'none (default features)'}
+- Feature groups: {args.feature_groups or "none (default features)"}
 - `make_data_op` arguments as resolved: {resolved}
 - Model defaults as resolved by `describe_defaults()`:
   {json.dumps({str(k): str(v) for k, v in pred.skb.describe_defaults().items()})}

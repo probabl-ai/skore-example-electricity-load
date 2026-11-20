@@ -32,7 +32,7 @@ from pathlib import Path
 import polars as pl
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
-from electricity_load_forecasting.metrics import pinball
+from electricity_load_forecasting.metrics import PINBALL_LEVELS, pinball
 
 
 def horizons_of(df):
@@ -47,6 +47,24 @@ def quantile_levels_of(df, h):
         for c in df.columns
         if (m := re.match(rf"^pred_{h}h__q_([\d.]+)$", c))
     )
+
+
+def read_predictions(path):
+    """Read a `*_cv_predictions.parquet`, keeping only the quantile levels used
+    for scoring (`metrics.PINBALL_LEVELS`: 5%, 50%, 95%).
+
+    Models can predict more levels (e.g. the `_q7` HGB runs have 7); dropping
+    the others here makes pinball, coverage, width and reliability scores
+    comparable across models, whatever the script computing them.
+    """
+    df = pl.read_parquet(path)
+    drop = [
+        f"pred_{h}h__q_{q}"
+        for h in horizons_of(df)
+        for q in quantile_levels_of(df, h)
+        if not any(abs(q - t) < 1e-9 for t in PINBALL_LEVELS)
+    ]
+    return df.drop(drop)
 
 
 def mae(y_true, y_pred_point):
@@ -151,7 +169,7 @@ def compare(paths):
     results = {}
     for path in paths:
         name = path.stem.removesuffix("_cv_predictions")
-        df = pl.read_parquet(path)
+        df = read_predictions(path)
         results[name] = compute_scores(df)
         print(f"{name}: {df.height} pooled rows across {df['split'].n_unique()} folds")
 

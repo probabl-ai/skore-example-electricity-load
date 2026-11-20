@@ -81,6 +81,7 @@ identical across models.
 
 import argparse
 import datetime
+import functools
 import importlib.metadata
 import json
 import os
@@ -195,25 +196,23 @@ uses_lagged_features = not args.model.endswith("_forecast") and args.model not i
 )
 if args.feature_groups and not uses_lagged_features:
     parser.error(f"--feature_groups is not supported by --model {args.model}")
+make_data_op = functools.partial(
+    elf.make_data_op, feature_groups=tuple(args.feature_groups)
+)
 args.output_dir.mkdir(parents=True, exist_ok=True)
 name = args.model + (f"_{args.tag}" if args.tag else "")
 
 if args.model == "hgb_mean":
-    pred = elf.make_data_op(
-        feature_groups=tuple(args.feature_groups),
-        horizons=HORIZONS, model="hgb_mean", max_iter=args.max_iter
-    )
+    pred = make_data_op(horizons=HORIZONS, model="hgb_mean", max_iter=args.max_iter)
 elif args.model == "hgb_quantile":
-    pred = elf.make_data_op(
-        feature_groups=tuple(args.feature_groups),
+    pred = make_data_op(
         horizons=HORIZONS,
         model="hgb_quantile",
         quantiles=args.quantiles,
         max_iter=args.max_iter,
     )
 elif args.model == "hgb_quantile_recal":
-    pred = elf.make_data_op(
-        feature_groups=tuple(args.feature_groups),
+    pred = make_data_op(
         horizons=HORIZONS,
         model="hgb_quantile",
         quantiles=args.quantiles,
@@ -221,8 +220,7 @@ elif args.model == "hgb_quantile_recal":
         recalibrate=True,
     )
 elif args.model == "hgb_quantile_conformal":
-    pred = elf.make_data_op(
-        feature_groups=tuple(args.feature_groups),
+    pred = make_data_op(
         horizons=HORIZONS,
         model="hgb_quantile",
         quantiles=args.quantiles,
@@ -230,16 +228,14 @@ elif args.model == "hgb_quantile_conformal":
         recalibrate="global",
     )
 elif args.model == "tabicl":
-    pred = elf.make_data_op(
-        feature_groups=tuple(args.feature_groups),
+    pred = make_data_op(
         horizons=HORIZONS,
         model="tabicl",
         quantiles=args.quantiles,
         max_train_rows=args.max_train_rows or None,
     )
 elif args.model == "tabicl_recal":
-    pred = elf.make_data_op(
-        feature_groups=tuple(args.feature_groups),
+    pred = make_data_op(
         horizons=HORIZONS,
         model="tabicl",
         quantiles=args.quantiles,
@@ -247,8 +243,7 @@ elif args.model == "tabicl_recal":
         recalibrate=True,
     )
 elif args.model == "tabicl_conformal":
-    pred = elf.make_data_op(
-        feature_groups=tuple(args.feature_groups),
+    pred = make_data_op(
         horizons=HORIZONS,
         model="tabicl",
         quantiles=args.quantiles,
@@ -256,16 +251,14 @@ elif args.model == "tabicl_conformal":
         recalibrate="global",
     )
 elif args.model == "kumo_tabular":
-    pred = elf.make_data_op(
-        feature_groups=tuple(args.feature_groups),
+    pred = make_data_op(
         horizons=HORIZONS,
         model="kumo_tabular",
         quantiles=args.quantiles,
         max_train_rows=args.max_train_rows or None,
     )
 elif args.model == "kumo_tabular_recal":
-    pred = elf.make_data_op(
-        feature_groups=tuple(args.feature_groups),
+    pred = make_data_op(
         horizons=HORIZONS,
         model="kumo_tabular",
         quantiles=args.quantiles,
@@ -356,7 +349,6 @@ cv_predictions.write_parquet(args.output_dir / f"{name}_cv_predictions.parquet")
 scores.write_csv(args.output_dir / f"{name}_scores.csv")
 
 
-
 def git(*cmd):
     return subprocess.run(
         ["git", *cmd], cwd=elf.pipeline.project_dir(), capture_output=True, text=True
@@ -375,7 +367,9 @@ metadata = {
     "date": datetime.datetime.now().isoformat(timespec="seconds"),
     "duration_s": round(dt, 1),
     "git_commit": git("rev-parse", "HEAD"),
-    "git_modified_files": git("status", "--porcelain", "--untracked-files=no").splitlines(),
+    "git_modified_files": git(
+        "status", "--porcelain", "--untracked-files=no"
+    ).splitlines(),
     "host": {
         "node": platform.node(),
         "processor": platform.processor(),
@@ -384,10 +378,21 @@ metadata = {
     },
     "versions": {
         pkg: version(pkg)
-        for pkg in ("polars", "scikit-learn", "skrub", "tabicl", "torch", "chronos-forecasting")
+        for pkg in (
+            "polars",
+            "scikit-learn",
+            "skrub",
+            "holidays",
+            "tabicl",
+            "torch",
+            "structured-data-models",
+            "chronos-forecasting",
+        )
     }
     | {"python": platform.python_version()},
-    "weather_fetcher": env.get("city_weather_fetcher", elf.fetch_city_weather_forecast).__name__,
+    "weather_fetcher": env.get(
+        "city_weather_fetcher", elf.fetch_city_weather_forecast
+    ).__name__,
     "env": {k: str(v) for k, v in env.items()},
     "horizons": HORIZONS,
     "quantiles": args.quantiles,
@@ -416,8 +421,6 @@ if uses_lagged_features:
                     "city_weather_fetcher", elf.fetch_city_weather_forecast
                 ),
                 holidays_fetcher=elf.pipeline.fetch_holidays,
-                school_holidays_fetcher=elf.pipeline.fetch_school_holidays,
-                feature_groups=tuple(args.feature_groups),
             ).columns
             if c not in ("prediction_time", "target_time")
         ]

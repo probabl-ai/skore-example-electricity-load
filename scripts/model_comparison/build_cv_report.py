@@ -43,6 +43,7 @@ from compare_predictions import (
     compute_scores,
     horizons_of,
     quantile_levels_of,
+    read_predictions,
     table_from_results,
 )
 from model_registry import canonical_order, model_colour
@@ -120,7 +121,7 @@ parser.add_argument(
     type=Path,
     help="write only the Pareto page to this path and exit",
 )
-parser.add_argument("--figure_height", type=int, default=300)
+parser.add_argument("--figure_height", type=int, default=450)
 parser.add_argument("--page_width", type=int, default=1100)
 parser.add_argument(
     "--note",
@@ -143,7 +144,7 @@ if args.models:
         raise SystemExit(f"unknown model(s) in --models: {', '.join(missing)}")
     paths = [p for p in paths if p.stem.removesuffix("_cv_predictions") in wanted]
 frames = {
-    p.stem.removesuffix("_cv_predictions"): pl.read_parquet(p).sort("prediction_time")
+    p.stem.removesuffix("_cv_predictions"): read_predictions(p).sort("prediction_time")
     for p in paths
 }
 frames = {name: frames[name] for name in canonical_order(frames)}
@@ -254,8 +255,6 @@ def average_pinball_loss(df, horizon=None):
         q for q in levels if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
     ]
     if not chosen:
-        chosen = levels
-    if not chosen:
         return None
     losses = []
     for h in hs:
@@ -273,7 +272,6 @@ def pinball_row_loss(df, horizon):
     chosen = [
         q for q in levels if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
     ]
-    chosen = chosen or levels
     if not chosen:
         return None
     return np.mean([row_loss(df, "pinball", horizon, q) for q in chosen], axis=0)
@@ -713,7 +711,7 @@ def pareto_grid_figure(records, x_field, x_title, metrics):
             for label in PARETO_HORIZON_LABELS
             for _, short, _ in metrics
         ],
-        vertical_spacing=0.09,
+        vertical_spacing=0.05,
         horizontal_spacing=0.10,
     )
     for row, (key, _) in enumerate(PARETO_HORIZONS, 1):
@@ -777,7 +775,7 @@ def pareto_difference_grid_figure(records, x_field, x_title, metrics):
             for label in PARETO_HORIZON_LABELS
             for _, short, _, _ in metrics
         ],
-        vertical_spacing=0.11,
+        vertical_spacing=0.05,
         horizontal_spacing=0.10,
     )
     has_data = False
@@ -1000,7 +998,7 @@ def write_pareto_page(path, records):
 <meta charset="utf-8">
 <title>Pareto plots: accuracy vs total and predict time</title>
 <style>
-body {{ font-family: sans-serif; max-width: {PAGE_WIDTH}px; margin: 2em auto; padding: 0 1em; }}
+body {{ font-family: sans-serif; margin: 2em auto; padding: 0 1em; width: 96%; }}
 table {{ border-collapse: collapse; margin-bottom: 1.5em; }}
 th, td {{ border-bottom: 1px solid #ddd; padding: 0.4em 0.8em; text-align: right; }}
 th:first-child, td:first-child {{ text-align: left; }}
@@ -1400,8 +1398,9 @@ tbody tr:hover {{ background-color: #eef3ff; }}
 </head>
 <body>
 <h1>Walk-forward CV comparison</h1>
-<p>MAE / MAPE use the median (point) prediction; pinball-d2, coverage and
-width use all available quantiles ("-" = model has no quantiles).
+<p>MAE / MAPE use the median (point) prediction; pinball-d2 uses the 5%, 50% and
+95% quantiles and coverage / width the 5%-95% interval, for every model whatever
+other quantile levels it predicts ("-" = model has no quantiles).
 All rows across the 8 CV folds are pooled.</p>
 {operator_note}
 {note}

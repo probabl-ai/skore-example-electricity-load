@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 
 import holidays
-import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 import skrub
@@ -23,11 +22,7 @@ from .splitter import TimeSeriesSplitter
 FEATURE_GROUPS = (
     "load_diffs",  # differences between load lags
     "load_same_hour",  # load at prediction time vs same clock hour 1 day / 1 week before
-    "load_rolling",  # 24h mean/min/max and same-hour-last-7-days mean of the load
-    "temp_national",  # national temperature, degree days, long windows
     "temp_diffs",  # national temperature changes and anomalies
-    "calendar",  # distance to holidays, bridge days
-    "school_holidays",  # fraction of French school zones on vacation
 )
 
 _ALL_CITIES = (
@@ -207,9 +202,8 @@ def add_lagged_features(target_time, load_mw_history, horizon, feature_groups=()
     lag_values = set(range(horizon, 24)) | {24, 24 * 2, 24 * 7}
     if "load_same_hour" in feature_groups:
         lag_values |= {horizon + 24, horizon + 24 * 7}
-    lag_values = sorted(lag_values)
     load = pl.col("load_mw")
-    lags = [load.shift(lag).alias(f"lag_{lag}") for lag in lag_values]
+    lags = [load.shift(lag).alias(f"lag_{lag}") for lag in sorted(lag_values)]
 
     rolling_lags = sorted(set((horizon, 24)))
     rolling_widths = (24, 24 * 7)
@@ -225,24 +219,7 @@ def add_lagged_features(target_time, load_mw_history, horizon, feature_groups=()
 
     medians = rolling(load.median(), "median")
     iqr = rolling((load.quantile(0.75) - load.quantile(0.25)), "iqr")
-    extra = []
-    if "load_rolling" in feature_groups:
-        # statistics of the last 24h before prediction time
-        for stat in ("mean", "min", "max"):
-            extra += [
-                getattr(load, stat)()
-                .rolling(
-                    index_column="time", period="24h", offset=f"{-24 - horizon}h"
-                )
-                .alias(f"lag_{horizon}_width_24_{stat}")
-            ]
-        # mean of the same hour of the day over the last 7 days (all >= horizon ago)
-        extra += [
-            pl.mean_horizontal(*(load.shift(24 * k) for k in range(1, 8))).alias(
-                "same_hour_mean_7d"
-            )
-        ]
-    features = load_mw_history.select(pl.col("time"), *lags, *medians, *iqr, *extra)
+    features = load_mw_history.select(pl.col("time"), *lags, *medians, *iqr)
     df = target_time.join(
         features,
         left_on="target_time",
@@ -250,25 +227,18 @@ def add_lagged_features(target_time, load_mw_history, horizon, feature_groups=()
         how="left",
         maintain_order="left",
     )
-    # name -> expression (a dict avoids duplicates when horizon + 24 == 48)
-    lag = lambda k: pl.col(f"lag_{k}")  # noqa: E731
+    # name -> difference (a dict avoids duplicates when horizon + 24 == 48)
     diffs = {}
     if "load_diffs" in feature_groups:
-        for k in range(horizon, 23):
-            diffs[f"lag_{k}_minus_{k + 1}"] = lag(k) - lag(k + 1)
-        for k in (24, 48, 168):
-            if k != horizon:
-                diffs[f"lag_{horizon}_minus_{k}"] = lag(horizon) - lag(k)
+        pairs = [(k, k + 1) for k in range(horizon, 23)]
+        pairs += [(horizon, k) for k in (24, 48, 168) if k != horizon]
+        diffs |= dict.fromkeys(pairs)
     if "load_same_hour" in feature_groups:
-        for k in (horizon + 24, horizon + 24 * 7):
-            diffs[f"lag_{horizon}_minus_{k}"] = lag(horizon) - lag(k)
-    if "load_rolling" in feature_groups:
-        diffs["lag_24_minus_same_hour_mean_7d"] = lag(24) - pl.col("same_hour_mean_7d")
-        diffs[f"lag_{horizon}_median_24_minus_168"] = pl.col(
-            f"lag_{horizon}_width_24_median"
-        ) - pl.col(f"lag_{horizon}_width_168_median")
-    diffs = [e.alias(name) for name, e in diffs.items()]
-    return df.with_columns(*diffs)
+        diffs |= dict.fromkeys([(horizon, horizon + 24), (horizon, horizon + 24 * 7)])
+    return df.with_columns(
+        (pl.col(f"lag_{a}") - pl.col(f"lag_{b}")).alias(f"lag_{a}_minus_{b}")
+        for a, b in diffs
+    )
 
 
 def fetch_city_weather(city, horizon=None):
@@ -334,14 +304,13 @@ def add_weather(
     return with_weather.collect()
 
 
-def add_national_temperature(
-    df, horizon, city_names, city_weather_fetcher, feature_groups
-):
-    """Add features computed on the temperature averaged over the cities.
+def add_national_temperature_diffs(df, horizon, city_names, city_weather_fetcher):
+    """Add changes and anomalies of the temperature averaged over the cities.
 
-    Degree days are computed per city and then averaged, which a tree cannot
-    do from the per-city temperatures. Windows end at the target time and only
-    use forecasts valid at or before it (see ``fetch_city_weather_forecast``).
+    The mean over cities and the differences over time are features that a tree
+    cannot build from the per-city temperatures. Windows end at the target time
+    and only use forecasts valid at or before it (see
+    ``fetch_city_weather_forecast``).
     """
     if isinstance(city_names, str):
         city_names = _ALL_CITIES
@@ -353,118 +322,55 @@ def add_national_temperature(
             for city in city_names
         ]
     )
-    t = pl.col("temperature_2m")
-    nat = (
+    temp = pl.col("temp")
+
+    def mean(hours):
+        return temp.rolling_mean_by("time", window_size=f"{hours}h", closed="right")
+
+    # a dict avoids duplicates when horizon is 24
+    diffs = {
+        24: temp - temp.shift(24),
+        168: temp - temp.shift(168),
+        horizon: temp - temp.shift(horizon),
+    }
+    national = (
         temperature.group_by("time")
-        .agg(
-            t.mean().alias("temp"),
-            t.std().alias("temp_std"),
-            (18 - t).clip(lower_bound=0).mean().alias("hdd"),
-            (t - 22).clip(lower_bound=0).mean().alias("cdd"),
-        )
+        .agg(pl.col("temperature_2m").mean().alias("temp"))
         .sort("time")
+        .select(
+            "time",
+            *(e.alias(f"weather_nat_temp_diff_{n}h") for n, e in diffs.items()),
+            (temp - mean(24)).alias("weather_nat_temp_anomaly_24h"),
+            (temp - mean(168)).alias("weather_nat_temp_anomaly_168h"),
+        )
         .collect()
     )
-    temp = pl.col("temp")
-    window = lambda n: dict(by="time", window_size=f"{n}h", closed="right")  # noqa: E731
-    features = {}
-    if "temp_national" in feature_groups:
-        features |= {
-            "nat_temp": temp,
-            "nat_temp_std": pl.col("temp_std"),
-            "nat_hdd": pl.col("hdd"),
-            "nat_cdd": pl.col("cdd"),
-            "nat_temp_min_24h": temp.rolling_min_by(**window(24)),
-            "nat_temp_max_24h": temp.rolling_max_by(**window(24)),
-            "nat_hdd_sum_72h": pl.col("hdd").rolling_sum_by(**window(72)),
-            "nat_hdd_sum_168h": pl.col("hdd").rolling_sum_by(**window(168)),
-        }
-        for n in (24, 72, 168):
-            features[f"nat_temp_mean_{n}h"] = temp.rolling_mean_by(**window(n))
-    if "temp_diffs" in feature_groups:
-        features |= {
-            "nat_temp_diff_24h": temp - temp.shift(24),
-            "nat_temp_diff_168h": temp - temp.shift(168),
-            f"nat_temp_diff_{horizon}h": temp - temp.shift(horizon),
-            "nat_temp_anomaly_24h": temp - temp.rolling_mean_by(**window(24)),
-            "nat_temp_anomaly_168h": temp - temp.rolling_mean_by(**window(168)),
-        }
-    if not features:
-        return df
-    nat = nat.select(
-        "time", *(e.alias(f"weather_{name}") for name, e in features.items())
-    )
     return df.join(
-        nat, left_on="target_time", right_on="time", how="left", maintain_order="left"
+        national,
+        left_on="target_time",
+        right_on="time",
+        how="left",
+        maintain_order="left",
     )
-
-
-def fetch_school_holidays():
-    """French school vacations per zone (A, B, C), see datasets/README.md.
-
-    Returns a dataframe with one row per vacation period and columns ``zone``
-    (str), ``start_utc`` and ``end_utc`` (datetimes in UTC, ``end_utc``
-    exclusive).
-    """
-    return pl.read_csv(
-        data_dir() / "school_holidays_fr.csv", try_parse_dates=True
-    ).with_columns(pl.col("start_utc", "end_utc").dt.replace_time_zone("UTC"))
 
 
 def fetch_holidays(years):
     return holidays.country_holidays("FR", years=years)
 
 
-def add_calendar_and_holidays(
-    df,
-    holidays_fetcher=fetch_holidays,
-    school_holidays_fetcher=fetch_school_holidays,
-    feature_groups=(),
-):
+def add_calendar_and_holidays(df, holidays_fetcher=fetch_holidays):
     """Add calendar features and holiday information."""
     fr_time = pl.col("target_time").dt.convert_time_zone("Europe/Paris")
     fr_year_min = df.select(fr_time.dt.year().min()).item()
     fr_year_max = df.select(fr_time.dt.year().max()).item()
     holidays_fr = holidays_fetcher(years=range(fr_year_min, fr_year_max + 1))
-    df = df.with_columns(
+    return df.with_columns(
         fr_time.dt.hour().alias("cal_hour_of_day"),
         fr_time.dt.weekday().alias("cal_day_of_week"),
         fr_time.dt.ordinal_day().alias("cal_day_of_year"),
         fr_time.dt.year().alias("cal_year"),
         fr_time.dt.date().is_in(holidays_fr.keys()).alias("cal_is_holiday"),
     )
-    if "calendar" in feature_groups:
-        # the holidays of the neighbouring years give the distance at year ends
-        holiday_days = np.array(
-            sorted(holidays_fetcher(years=range(fr_year_min - 1, fr_year_max + 2))),
-            dtype="datetime64[D]",
-        )
-        day = df.select(fr_time.dt.date()).to_series().to_numpy().astype("datetime64[D]")
-        i = np.searchsorted(holiday_days, day)  # first holiday on or after day
-        one = np.timedelta64(1, "D")
-        to_next = (holiday_days[np.minimum(i, len(holiday_days) - 1)] - day) / one
-        since_prev = (day - holiday_days[np.maximum(i - 1, 0)]) / one
-        dow = df["cal_day_of_week"].to_numpy()  # Monday is 1
-        bridge = ((dow == 1) & np.isin(day + one, holiday_days)) | (
-            (dow == 5) & np.isin(day - one, holiday_days)
-        )
-        df = df.with_columns(
-            pl.Series("cal_days_to_next_holiday", to_next),
-            pl.Series("cal_days_since_prev_holiday", since_prev),
-            pl.Series("cal_is_bridge_day", bridge & ~df["cal_is_holiday"].to_numpy()),
-        )
-    if "school_holidays" in feature_groups:
-        t = df["target_time"].dt.replace_time_zone(None).to_numpy()
-        on_vacation = 0
-        for _, zone in school_holidays_fetcher().sort("start_utc").group_by("zone"):
-            start = zone["start_utc"].dt.replace_time_zone(None).to_numpy()
-            end = zone["end_utc"].dt.replace_time_zone(None).to_numpy()
-            i = np.searchsorted(start, t, side="right") - 1  # last start <= t
-            on_vacation = on_vacation + ((i >= 0) & (t < end[np.maximum(i, 0)]))
-        df = df.with_columns(
-            pl.Series("cal_school_holiday_fraction", on_vacation / 3)
-        )
-    return df
 
 
 def add_target_time(df, horizon):
@@ -481,12 +387,13 @@ def add_features(
     load_mw_history,
     city_weather_fetcher,
     holidays_fetcher,
-    school_holidays_fetcher=fetch_school_holidays,
     feature_groups=(),
 ):
     unknown = set(feature_groups) - set(FEATURE_GROUPS)
     if unknown:
-        raise ValueError(f"Unknown feature groups {sorted(unknown)}, see FEATURE_GROUPS")
+        raise ValueError(
+            f"Unknown feature groups {sorted(unknown)}, see FEATURE_GROUPS"
+        )
     df = add_target_time(df, horizon=horizon)
     df = add_weather(
         df,
@@ -495,15 +402,11 @@ def add_features(
         city_names=city_names,
         city_weather_fetcher=city_weather_fetcher,
     )
-    df = add_national_temperature(
-        df, horizon, city_names, city_weather_fetcher, feature_groups
-    )
-    df = add_calendar_and_holidays(
-        df,
-        holidays_fetcher=holidays_fetcher,
-        school_holidays_fetcher=school_holidays_fetcher,
-        feature_groups=feature_groups,
-    )
+    if "temp_diffs" in feature_groups:
+        df = add_national_temperature_diffs(
+            df, horizon, city_names, city_weather_fetcher
+        )
+    df = add_calendar_and_holidays(df, holidays_fetcher=holidays_fetcher)
     df = add_lagged_features(
         df,
         load_mw_history=load_mw_history,
@@ -617,12 +520,6 @@ def make_data_op(
        ``years`` and must return a mapping from dates to holiday names (like
        ``holidays.country_holidays``).
 
-    - school_holidays_fetcher : function, optional
-       Use this to override how school vacations are loaded (only used with
-       the ``school_holidays`` feature group). It is called with no arguments
-       and must return a dataframe with columns zone, start_utc, end_utc (see
-       ``fetch_school_holidays``).
-
     model : {"hgb_mean", "hgb_quantile", "binning", "tabicl", "kumo_tabular"}, default="hgb_mean"
         Prediction model or strategy. ``"hgb_mean"`` is the HGB point
         forecast; the others are quantile strategies. TabICL and Kumo-Tabular
@@ -649,8 +546,7 @@ def make_data_op(
     recalibratable = ("hgb_quantile", "tabicl", "kumo_tabular")
     if recalibrate and model not in recalibratable:
         raise ValueError(
-            f"recalibrate=True is only supported with {recalibratable}, "
-            f"got {model!r}"
+            f"recalibrate=True is only supported with {recalibratable}, got {model!r}"
         )
     range_start = skrub.var("start").skb.set_description(
         "The first time at which a prediction is made."
@@ -672,12 +568,6 @@ def make_data_op(
     )
     holidays_fetcher = skrub.var(
         "holidays_fetcher", fetch_holidays, becomes_default=True
-    )
-    school_holidays_fetcher = skrub.var(
-        "school_holidays_fetcher", fetch_school_holidays, becomes_default=True
-    ).skb.set_description(
-        "Function that loads the French school vacations per zone. "
-        "See electricity_load_forecasting.pipeline.fetch_school_holidays."
     )
     prediction_time = skrub.deferred(time_range)(range_start, range_end)
     load_mw_history = (
@@ -771,7 +661,6 @@ def make_data_op(
                 load_mw_history=load_mw_history,
                 city_weather_fetcher=city_weather_fetcher,
                 holidays_fetcher=holidays_fetcher,
-                school_holidays_fetcher=school_holidays_fetcher,
                 feature_groups=feature_groups,
             )
             .skb.set_name(f"feat_{h}h")

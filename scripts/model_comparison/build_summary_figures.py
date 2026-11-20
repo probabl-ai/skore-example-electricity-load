@@ -28,6 +28,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
+from compare_predictions import read_predictions
 from matplotlib.lines import Line2D
 from matplotlib.offsetbox import AnnotationBbox, HPacker, TextArea
 from matplotlib.patches import Patch
@@ -120,7 +121,7 @@ def load_records(directory):
         path = directory / f"{name}_cv_predictions.parquet"
         if not path.exists():
             raise SystemExit(f"missing {path}")
-        df = pl.read_parquet(path).sort("prediction_time")
+        df = read_predictions(path).sort("prediction_time")
         keys = df.select("prediction_time", "split")
         if reference is None:
             reference = keys

@@ -466,7 +466,7 @@ pre, code {
         <div class="data_op-node">
             <div class="node-details" 
                 >
-                <h1>GetItem &#39;12h&#39;</h1>
+                <h1>pred_12h | Apply HGBQuantileRegressor</h1>
                 <div><pre><code></code></pre></div>
                 <nav class="mini-nav">
                     <ul>
@@ -482,16 +482,26 @@ pre, code {
                         </li>
                     </ul>
                 </nav>
-                <samp>ID:</samp> <samp>181902645451546263446549589298559994931</samp>
+                <samp>ID:</samp> <samp>45615129911872060042661475738067520674</samp>
+                
+                <h2><samp>Name: pred_12h</samp></h2>
                 
                 <div>
+                    
+                    <h3>Description:</h3>
+                    <p>
+                        Predicted load 12 hours after the &#39;prediction_time&#39; in X.
+                    </p>
                     
 
                     <h3>This step uses:</h3>
                     <ul>
                         
-                        <li><a href="node_17.html">17:
-                                GetItem &#39;y&#39;</a></li>
+                        <li><a href="node_22.html">22:
+                                CallMethod &#39;to_numpy&#39;</a></li>
+                        
+                        <li><a href="node_23.html">23:
+                                GetItem &#39;12h&#39;</a></li>
                         
                     </ul>
                 </div>
@@ -500,27 +510,988 @@ pre, code {
                     <h3>This step is used by:</h3>
                     <ul>
                         
-                        <li><a href="node_25.html">25:
-                                pred_12h | Apply HGBQuantileRegressor</a></li>
+                        <li><a href="node_32.html">32:
+                                pred_multi_horizon | Call &#39;concat_horizons&#39;</a></li>
                         
                     </ul>
                 </div>
 
                 <div>
                     <h3>Where was this step created?</h3>
-                    <pre><code class="node-creation-stack">File <a href="python/e7bfb98132e5fefc66dd649a7065405fbc41e057fc7867c4a841efeb59a2208a.html#L42">/workspace/scripts/inspection/make_skrub_report.py, line 42</a>, in &lt;module&gt;
-<span class="node-creation-stack-line">pred = elf.make_data_op(</span>File <a href="python/0dfc0db800d138d6cb9ed74433619984d8c72b5f2385ad1b51df58f57e67934a.html#L787">/workspace/src/electricity_load_forecasting/pipeline.py, line 787</a>, in make_data_op
-<span class="node-creation-stack-line">y=y[f&#34;{h}h&#34;],</span></code></pre>
+                    <pre><code class="node-creation-stack">File <a href="python/e7bfb98132e5fefc66dd649a7065405fbc41e057fc7867c4a841efeb59a2208a.html#L44">/workspace/scripts/inspection/make_skrub_report.py, line 44</a>, in &lt;module&gt;
+<span class="node-creation-stack-line">pred = elf.make_data_op(</span>File <a href="python/0dfc0db800d138d6cb9ed74433619984d8c72b5f2385ad1b51df58f57e67934a.html#L674">/workspace/src/electricity_load_forecasting/pipeline.py, line 674</a>, in make_data_op
+<span class="node-creation-stack-line">.skb.apply(</span></code></pre>
                 </div>
                 
 
                 
                 <div>
                     <h3>Computation time</h3>
-                    <code>0h 0m 4e-05s</code>
+                    <code>0h 0m 24s</code>
                 </div>
                 
 
+                
+                <h3>Estimator applied in this step:</h3>
+                <div>
+                    <p>
+                        <code>HGBQuantileRegressor</code>
+                        
+                        : <a href="python/9ab0a5cafc8415632ff54ee347b5e19345c1583285153241d7e1c29d2c594df3.html#L16">source code</a>
+                        
+                    </p>
+
+                    
+
+
+
+                    
+                    <style>.sk-global {
+  /* Definition of color scheme common for light and dark mode */
+  --sklearn-color-text: #000;
+  --sklearn-color-text-muted: #666;
+  --sklearn-color-line: gray;
+  /* Definition of color scheme for unfitted estimators */
+  --sklearn-color-unfitted-level-0: #fff5e6;
+  --sklearn-color-unfitted-level-1: #f6e4d2;
+  --sklearn-color-unfitted-level-2: #ffe0b3;
+  --sklearn-color-unfitted-level-3: chocolate;
+  /* Definition of color scheme for fitted estimators */
+  --sklearn-color-fitted-level-0: #f0f8ff;
+  --sklearn-color-fitted-level-1: #d4ebff;
+  --sklearn-color-fitted-level-2: #b3dbfd;
+  --sklearn-color-fitted-level-3: cornflowerblue;
+}
+
+.sk-global.light {
+  /* Specific color for light theme */
+  --sklearn-color-text-on-default-background: black;
+  --sklearn-color-background: white;
+  --sklearn-color-border-box: black;
+  --sklearn-color-icon: #696969;
+}
+
+.sk-global.dark {
+  --sklearn-color-text-on-default-background: white;
+  --sklearn-color-background: #111;
+  --sklearn-color-border-box: white;
+  --sklearn-color-icon: #878787;
+}
+
+.sk-global {
+  color: var(--sklearn-color-text);
+}
+
+.sk-global pre {
+  padding: 0;
+}
+
+.sk-global input.sk-hidden--visually {
+  border: 0;
+  clip-path: inset(100%);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.sk-global div.sk-dashed-wrapped {
+  border: 1px dashed var(--sklearn-color-line);
+  margin: 0 0.4em 0.5em 0.4em;
+  box-sizing: border-box;
+  padding-bottom: 0.4em;
+  background-color: var(--sklearn-color-background);
+}
+
+.sk-global div.sk-container {
+  /* jupyter's `normalize.less` sets `[hidden] { display: none; }`
+     but bootstrap.min.css set `[hidden] { display: none !important; }`
+     so we also need the `!important` here to be able to override the
+     default hidden behavior on the sphinx rendered scikit-learn.org.
+     See: https://github.com/scikit-learn/scikit-learn/issues/21755 */
+  display: inline-block !important;
+  position: relative;
+}
+
+.sk-global div.sk-text-repr-fallback {
+  display: none;
+}
+
+div.sk-parallel-item,
+div.sk-serial,
+div.sk-item {
+  /* draw centered vertical line to link estimators */
+  background-image: linear-gradient(var(--sklearn-color-text-on-default-background), var(--sklearn-color-text-on-default-background));
+  background-size: 2px 100%;
+  background-repeat: no-repeat;
+  background-position: center center;
+}
+
+/* Parallel-specific style estimator block */
+
+.sk-global div.sk-parallel-item::after {
+  content: "";
+  width: 100%;
+  border-bottom: 2px solid var(--sklearn-color-text-on-default-background);
+  flex-grow: 1;
+}
+
+.sk-global div.sk-parallel {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background-color: var(--sklearn-color-background);
+  position: relative;
+}
+
+.sk-global div.sk-parallel-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.sk-global div.sk-parallel-item:first-child::after {
+  align-self: flex-end;
+  width: 50%;
+}
+
+.sk-global div.sk-parallel-item:last-child::after {
+  align-self: flex-start;
+  width: 50%;
+}
+
+.sk-global div.sk-parallel-item:only-child::after {
+  width: 0;
+}
+
+/* Serial-specific style estimator block */
+
+.sk-global div.sk-serial {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: var(--sklearn-color-background);
+  padding-right: 1em;
+  padding-left: 1em;
+}
+
+
+/* Toggleable style: style used for estimator/Pipeline/ColumnTransformer box that is
+clickable and can be expanded/collapsed.
+- Pipeline and ColumnTransformer use this feature and define the default style
+- Estimators will overwrite some part of the style using the `sk-estimator` class
+*/
+
+/* Pipeline and ColumnTransformer style (default) */
+
+.sk-global div.sk-toggleable {
+  /* Default theme specific background. It is overwritten whether we have a
+  specific estimator or a Pipeline/ColumnTransformer */
+  background-color: var(--sklearn-color-background);
+}
+
+/* Toggleable label */
+.sk-global label.sk-toggleable__label {
+  cursor: pointer;
+  display: flex;
+  width: 100%;
+  margin-bottom: 0;
+  padding: 0.5em;
+  box-sizing: border-box;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+}
+
+.sk-global label.sk-toggleable__label .caption {
+  font-size: 0.6rem;
+  font-weight: lighter;
+  color: var(--sklearn-color-text-muted);
+}
+
+.sk-global label.sk-toggleable__label-arrow:before {
+  /* Arrow on the left of the label */
+  content: "▸";
+  float: left;
+  margin-right: 0.25em;
+  color: var(--sklearn-color-icon);
+}
+
+.sk-global label.sk-toggleable__label-arrow:hover:before {
+  color: var(--sklearn-color-text);
+}
+
+/* Toggleable content - dropdown */
+
+.sk-global div.sk-toggleable__content {
+  display: none;
+  text-align: left;
+  /* unfitted */
+  background-color: var(--sklearn-color-unfitted-level-0);
+}
+
+.sk-global div.sk-toggleable__content.fitted {
+  /* fitted */
+  background-color: var(--sklearn-color-fitted-level-0);
+}
+
+.sk-global div.sk-toggleable__content pre {
+  margin: 0.2em;
+  border-radius: 0.25em;
+  color: var(--sklearn-color-text);
+  /* unfitted */
+  background-color: var(--sklearn-color-unfitted-level-0);
+}
+
+.sk-global div.sk-toggleable__content.fitted pre {
+  /* unfitted */
+  background-color: var(--sklearn-color-fitted-level-0);
+}
+
+.sk-global input.sk-toggleable__control:checked~div.sk-toggleable__content {
+  /* Expand drop-down */
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.sk-global input.sk-toggleable__control:checked~label.sk-toggleable__label-arrow:before {
+  content: "▾";
+}
+
+/* Pipeline/ColumnTransformer-specific style */
+
+.sk-global div.sk-label input.sk-toggleable__control:checked~label.sk-toggleable__label {
+  color: var(--sklearn-color-text);
+  background-color: var(--sklearn-color-unfitted-level-2);
+}
+
+.sk-global div.sk-label.fitted input.sk-toggleable__control:checked~label.sk-toggleable__label {
+  background-color: var(--sklearn-color-fitted-level-2);
+}
+
+/* Estimator-specific style */
+
+/* Colorize estimator box */
+.sk-global div.sk-estimator input.sk-toggleable__control:checked~label.sk-toggleable__label {
+  /* unfitted */
+  background-color: var(--sklearn-color-unfitted-level-2);
+}
+
+.sk-global div.sk-estimator.fitted input.sk-toggleable__control:checked~label.sk-toggleable__label {
+  /* fitted */
+  background-color: var(--sklearn-color-fitted-level-2);
+}
+
+.sk-global div.sk-label label.sk-toggleable__label,
+.sk-global div.sk-label label {
+  /* The background is the default theme color */
+  color: var(--sklearn-color-text-on-default-background);
+}
+
+/* On hover, darken the color of the background */
+.sk-global div.sk-label:hover label.sk-toggleable__label {
+  color: var(--sklearn-color-text);
+  background-color: var(--sklearn-color-unfitted-level-2);
+}
+
+/* Label box, darken color on hover, fitted */
+.sk-global div.sk-label.fitted:hover label.sk-toggleable__label.fitted {
+  color: var(--sklearn-color-text);
+  background-color: var(--sklearn-color-fitted-level-2);
+}
+
+/* Estimator label */
+
+.sk-global div.sk-label label {
+  font-family: monospace;
+  font-weight: bold;
+  line-height: 1.2em;
+}
+
+.sk-global div.sk-label-container {
+  text-align: center;
+}
+
+/* Estimator-specific */
+.sk-global div.sk-estimator {
+  font-family: monospace;
+  border: 1px dotted var(--sklearn-color-border-box);
+  border-radius: 0.25em;
+  box-sizing: border-box;
+  margin-bottom: 0.5em;
+  /* unfitted */
+  background-color: var(--sklearn-color-unfitted-level-0);
+}
+
+.sk-global div.sk-estimator.fitted {
+  /* fitted */
+  background-color: var(--sklearn-color-fitted-level-0);
+}
+
+/* on hover */
+.sk-global div.sk-estimator:hover {
+  /* unfitted */
+  background-color: var(--sklearn-color-unfitted-level-2);
+}
+
+.sk-global div.sk-estimator.fitted:hover {
+  /* fitted */
+  background-color: var(--sklearn-color-fitted-level-2);
+}
+
+/* Specification for estimator info (e.g. "i" and "?") */
+
+/* Common style for "i" and "?" */
+
+.sk-estimator-doc-link,
+a:link.sk-estimator-doc-link,
+a:visited.sk-estimator-doc-link {
+  float: right;
+  font-size: smaller;
+  line-height: 1em;
+  font-family: monospace;
+  background-color: var(--sklearn-color-unfitted-level-0);
+  border-radius: 1em;
+  height: 1em;
+  width: 1em;
+  text-decoration: none !important;
+  margin-left: 0.5em;
+  text-align: center;
+  /* unfitted */
+  border: var(--sklearn-color-unfitted-level-3) 1pt solid;
+  color: var(--sklearn-color-unfitted-level-3);
+}
+
+.sk-estimator-doc-link.fitted,
+a:link.sk-estimator-doc-link.fitted,
+a:visited.sk-estimator-doc-link.fitted {
+  /* fitted */
+  background-color: var(--sklearn-color-fitted-level-0);
+  border: var(--sklearn-color-fitted-level-3) 1pt solid;
+  color: var(--sklearn-color-fitted-level-3);
+}
+
+/* On hover */
+div.sk-estimator:hover .sk-estimator-doc-link:hover,
+.sk-estimator-doc-link:hover,
+div.sk-label-container:hover .sk-estimator-doc-link:hover,
+.sk-estimator-doc-link:hover {
+  /* unfitted */
+  background-color: var(--sklearn-color-unfitted-level-3);
+  border: var(--sklearn-color-fitted-level-0) 1pt solid;
+  color: var(--sklearn-color-unfitted-level-0);
+  text-decoration: none;
+}
+
+div.sk-estimator.fitted:hover .sk-estimator-doc-link.fitted:hover,
+.sk-estimator-doc-link.fitted:hover,
+div.sk-label-container:hover .sk-estimator-doc-link.fitted:hover,
+.sk-estimator-doc-link.fitted:hover {
+  /* fitted */
+  background-color: var(--sklearn-color-fitted-level-3);
+  border: var(--sklearn-color-fitted-level-0) 1pt solid;
+  color: var(--sklearn-color-fitted-level-0);
+  text-decoration: none;
+}
+
+/* Span, style for the box shown on hovering the info icon */
+.sk-estimator-doc-link span {
+  display: none;
+  z-index: 9999;
+  position: relative;
+  font-weight: normal;
+  right: .2ex;
+  padding: .5ex;
+  margin: .5ex;
+  width: min-content;
+  min-width: 20ex;
+  max-width: 50ex;
+  color: var(--sklearn-color-text);
+  box-shadow: 2pt 2pt 4pt #999;
+  /* unfitted */
+  background: var(--sklearn-color-unfitted-level-0);
+  border: .5pt solid var(--sklearn-color-unfitted-level-3);
+}
+
+.sk-estimator-doc-link.fitted span {
+  /* fitted */
+  background: var(--sklearn-color-fitted-level-0);
+  border: var(--sklearn-color-fitted-level-3);
+}
+
+.sk-estimator-doc-link:hover span {
+  display: block;
+}
+
+/* "?"-specific style due to the `<a>` HTML tag */
+
+.sk-global a.estimator_doc_link {
+  float: right;
+  font-size: 1rem;
+  line-height: 1em;
+  font-family: monospace;
+  background-color: var(--sklearn-color-unfitted-level-0);
+  border-radius: 1rem;
+  height: 1rem;
+  width: 1rem;
+  text-decoration: none;
+  /* unfitted */
+  color: var(--sklearn-color-unfitted-level-1);
+  border: var(--sklearn-color-unfitted-level-1) 1pt solid;
+}
+
+.sk-global a.estimator_doc_link.fitted {
+  /* fitted */
+  background-color: var(--sklearn-color-fitted-level-0);
+  border: var(--sklearn-color-fitted-level-1) 1pt solid;
+  color: var(--sklearn-color-fitted-level-1);
+}
+
+/* On hover */
+.sk-global a.estimator_doc_link:hover {
+  /* unfitted */
+  background-color: var(--sklearn-color-unfitted-level-3);
+  color: var(--sklearn-color-background);
+  text-decoration: none;
+}
+
+.sk-global a.estimator_doc_link.fitted:hover {
+  /* fitted */
+  background-color: var(--sklearn-color-fitted-level-3);
+}
+
+.sk-top-container.sk-global {
+  /* pydata-sphinx-theme hides overflow, so scrolling is disabled.
+   We need to set it to !important and add tabindex="0" in the HTML
+   to allow keyboard-only users to navigate the display. */
+  overflow-x: scroll !important;
+  max-width: 100%;
+}
+
+.estimator-table {
+    font-family: monospace;
+}
+
+.estimator-table summary {
+    padding: .5rem;
+    cursor: pointer;
+}
+
+.estimator-table summary::marker {
+    font-size: 0.7rem;
+}
+
+.estimator-table details[open] {
+    padding-left: 0.1rem;
+    padding-right: 0.1rem;
+    padding-bottom: 0.3rem;
+}
+
+.estimator-table .parameters-table {
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-top: 0;
+}
+
+.estimator-table .parameters-table tr:nth-child(odd) {
+    background-color: #fff;
+}
+
+.estimator-table .parameters-table tr:nth-child(even) {
+    background-color: #f6f6f6;
+}
+
+.estimator-table .parameters-table tr:hover td {
+    background-color: #e0e0e0;
+}
+
+.estimator-table table :is(td, th) {
+    border: 1px solid rgba(106, 105, 104, 0.232);
+}
+
+/*
+    `table td`is set in notebook with right text-align.
+    We need to overwrite it.
+*/
+.estimator-table table td.param {
+    text-align: left;
+    position: relative;
+    padding: 0;
+}
+
+.user-set td {
+    color:rgb(255, 94, 0);
+    text-align: left !important;
+}
+
+.user-set td.value {
+    color:rgb(255, 94, 0);
+    background-color: transparent;
+}
+
+.default td, .estimator-table th {
+    color: black;
+    text-align: left !important;
+}
+
+.user-set td i,
+.default td i {
+    color: black;
+}
+
+td.fitted-att-type {
+    white-space: preserve nowrap;
+}
+
+/*
+    Styles for parameter documentation links
+    We need styling for visited so jupyter doesn't overwrite it
+*/
+a.param-doc-link,
+a.param-doc-link:link,
+a.param-doc-link:visited {
+    text-decoration: underline dashed;
+    text-underline-offset: .3em;
+    color: inherit;
+    display: block;
+    padding: .5em;
+}
+
+@supports(anchor-name: --doc-link) {
+    a.param-doc-link,
+    a.param-doc-link:link,
+    a.param-doc-link:visited {
+    anchor-name: --doc-link;
+    }
+}
+
+/* "hack" to make the entire area of the cell containing the link clickable */
+a.param-doc-link::before {
+    position: absolute;
+    content: "";
+    inset: 0;
+}
+
+.param-doc-description {
+    display: none;
+    position: absolute;
+    z-index: 9999;
+    left: 0;
+    padding: .5ex;
+    margin-left: 1.5em;
+    color: var(--sklearn-color-text);
+    box-shadow: .3em .3em .4em #999;
+    width: max-content;
+    text-align: left;
+    max-height: 10em;
+    overflow-y: auto;
+
+    /* unfitted */
+    background: var(--sklearn-color-unfitted-level-0);
+    border: thin solid var(--sklearn-color-unfitted-level-3);
+}
+
+@supports(position-area: center right) {
+    .param-doc-description {
+    position-area: center right;
+    position: fixed;
+    margin-left: 0;
+    }
+}
+
+/* Fitted state for parameter tooltips */
+.fitted .param-doc-description {
+    /* fitted */
+    background: var(--sklearn-color-fitted-level-0);
+    border: thin solid var(--sklearn-color-fitted-level-3);
+}
+
+.param-doc-link:hover .param-doc-description {
+    display: block;
+}
+
+.copy-paste-icon {
+    background-image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0NDggNTEyIj48IS0tIUZvbnQgQXdlc29tZSBGcmVlIDYuNy4yIGJ5IEBmb250YXdlc29tZSAtIGh0dHBzOi8vZm9udGF3ZXNvbWUuY29tIExpY2Vuc2UgLSBodHRwczovL2ZvbnRhd2Vzb21lLmNvbS9saWNlbnNlL2ZyZWUgQ29weXJpZ2h0IDIwMjUgRm9udGljb25zLCBJbmMuLS0+PHBhdGggZD0iTTIwOCAwTDMzMi4xIDBjMTIuNyAwIDI0LjkgNS4xIDMzLjkgMTQuMWw2Ny45IDY3LjljOSA5IDE0LjEgMjEuMiAxNC4xIDMzLjlMNDQ4IDMzNmMwIDI2LjUtMjEuNSA0OC00OCA0OGwtMTkyIDBjLTI2LjUgMC00OC0yMS41LTQ4LTQ4bDAtMjg4YzAtMjYuNSAyMS41LTQ4IDQ4LTQ4ek00OCAxMjhsODAgMCAwIDY0LTY0IDAgMCAyNTYgMTkyIDAgMC0zMiA2NCAwIDAgNDhjMCAyNi41LTIxLjUgNDgtNDggNDhMNDggNTEyYy0yNi41IDAtNDgtMjEuNS00OC00OEwwIDE3NmMwLTI2LjUgMjEuNS00OCA0OC00OHoiLz48L3N2Zz4=);
+    background-repeat: no-repeat;
+    background-size: 14px 14px;
+    background-position: 0;
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    background-color: transparent;
+}
+
+.copy-paste-icon:focus-visible {
+    outline: 1px solid currentColor;
+    outline-offset: 1px;
+}
+
+.features {
+  font-family: monospace;
+  cursor: pointer;
+  background-color: var(--sklearn-color-unfitted-level-0);
+  border: 1px dotted var(--sklearn-color-border-box);
+  border-radius: .20em;
+  margin-bottom: 0.5em;
+  font-size: inherit; /* Needed for jupyter */
+}
+
+.features.fitted {
+  background-color: var(--sklearn-color-fitted-level-0);
+}
+
+.features summary {
+  cursor: pointer;
+  display: flex;
+  margin-bottom: 0;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  padding: .25em;
+}
+
+.features details[open] > summary {
+  color: var(--sklearn-color-text);
+  background-color: var(--sklearn-color-unfitted-level-2);
+  border-radius: .20em 0 0 0;
+}
+
+.features.fitted details[open] > summary {
+  background-color: var(--sklearn-color-fitted-level-2);
+  border-radius: .20em 0 0 0;
+}
+
+.features details > summary .arrow::before {
+  content: "▸";
+  color: grey;
+}
+
+.features details[open] > summary .arrow::before {
+  content: "▾";
+}
+
+.features details:hover > summary {
+  margin: 0;
+  background-color: var(--sklearn-color-unfitted-level-2);
+}
+
+.features.fitted details:hover > summary {
+  margin: 0;
+  background-color: var(--sklearn-color-fitted-level-2);
+}
+
+.features .features-container {
+  max-height: 10em;
+  overflow: auto;
+  scrollbar-width: thin;
+  padding: .25em 0.1rem;
+  background-color: var(--sklearn-color-unfitted-level-0);
+  border-radius: 0 0 .5em .5em;
+}
+
+.features.fitted .features-container {
+  background-color: var(--sklearn-color-fitted-level-0);
+}
+
+.features .image-container {
+  block-size: 1em;
+  inline-size: 1em;
+  padding: 0;
+  margin: 0%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.features .copy-paste-icon {
+  background-size: 1em 1em;
+  width: 1em;
+  height: 1em;
+  filter: grayscale(100%) opacity(60%);
+}
+
+.features .features-container table {
+  width: 100%;
+  margin: 0.01em;
+}
+
+.features .features-container table tr:nth-child(odd) {
+  background-color: #fff;
+}
+
+.features .features-container table tr:nth-child(even) {
+  background-color: #f6f6f6;
+}
+
+.features .features-container table tr:hover {
+  background-color: #e0e0e0;
+}
+
+.features .features-container table {
+  table-layout: inherit;
+}
+
+.features .features-container table td {
+  text-align: left;
+  padding: 0 0.5em;
+  border: 1px solid rgba(106, 105, 104, 0.232);
+  white-space: nowrap;
+  color: var(--sklearn-color-text);
+}
+
+.total_features {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.5em;
+}
+</style><body><div id="sk-container-id-6" tabindex="0" class="sk-top-container sk-global"><div class="sk-text-repr-fallback"><pre>HGBQuantileRegressor(hgb_params={&#x27;early_stopping&#x27;: True, &#x27;learning_rate&#x27;: 0.1,
+                                 &#x27;max_depth&#x27;: None, &#x27;max_iter&#x27;: 3000,
+                                 &#x27;max_leaf_nodes&#x27;: 31, &#x27;min_samples_leaf&#x27;: 20,
+                                 &#x27;n_iter_no_change&#x27;: 100, &#x27;random_state&#x27;: 0})</pre><b>In a Jupyter environment, please rerun this cell to show the HTML representation or trust the notebook. <br />On GitHub, the HTML representation is unable to render, please try loading this page with nbviewer.org.</b></div><div class="sk-container" hidden><div class="sk-item"><div class="sk-estimator fitted sk-toggleable"><input class="sk-toggleable__control sk-hidden--visually sk-global" id="sk-estimator-id-8" type="checkbox" checked><label for="sk-estimator-id-8" class="sk-toggleable__label fitted sk-toggleable__label-arrow"><div><div>HGBQuantileRegressor</div></div><div><span class="sk-estimator-doc-link fitted">i<span>Fitted</span></span></div></label><div class="sk-toggleable__content fitted" data-param-prefix="">
+        <div class="estimator-table">
+            <details>
+                <summary>Parameters</summary>
+                <table class="parameters-table">
+                  <tbody>
+                    
+        <tr class="user-set">
+            <td><button type="button" class="copy-paste-icon"
+                 aria-label="Copy hgb_params to clipboard"
+                 onclick="copyToClipboard('hgb_params',
+                          this.parentElement.nextElementSibling)"
+            ></button></td>
+            <td class="param">hgb_params</td>
+            <td class="value">{&#x27;early_stopping&#x27;: True, &#x27;learning_rate&#x27;: 0.1, &#x27;max_depth&#x27;: None, &#x27;max_iter&#x27;: 3000, ...}</td>
+        </tr>
+    
+
+        <tr class="default">
+            <td><button type="button" class="copy-paste-icon"
+                 aria-label="Copy quantiles to clipboard"
+                 onclick="copyToClipboard('quantiles',
+                          this.parentElement.nextElementSibling)"
+            ></button></td>
+            <td class="param">quantiles</td>
+            <td class="value">(0.05, ...)</td>
+        </tr>
+    
+                  </tbody>
+                </table>
+            </details>
+        </div>
+    
+        <div class="estimator-table">
+            <details>
+                <summary>Fitted attributes</summary>
+                <table class="parameters-table">
+                    <tbody>
+                        <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Value</th>
+                        </tr>
+                        
+       <tr class="default">
+           <td class="param"><a class="param-doc-link" style="text-decoration:none;">estimators_</a></td>
+           <td class="fitted-att-type">dict</td>
+           <td>{0.05: HistGradientB...andom_state=0), 0.5: HistGradientB...andom_state=0), 0.95: HistGradientB...andom_state=0)}</td>
+
+
+       </tr>
+    
+
+       <tr class="default">
+           <td class="param"><a class="param-doc-link" style="text-decoration:none;">quantiles_</a></td>
+           <td class="fitted-att-type">list</td>
+           <td>[0.05, 0.5, 0.95]</td>
+
+
+       </tr>
+    
+                    </tbody>
+                </table>
+            </details>
+        </div>
+    </div></div></div></div></div><script>/*  Authors: The scikit-learn developers
+ SPDX-License-Identifier: BSD-3-Clause
+*/
+
+function copyToClipboard(text, element) {
+    // Get the parameter prefix from the closest toggleable content
+    const toggleableContent = element.closest('.sk-toggleable__content');
+    const paramPrefix = toggleableContent ? toggleableContent.dataset.paramPrefix : '';
+    const fullParamName = paramPrefix ? `${paramPrefix}${text}` : text;
+
+    const originalStyle = element.style;
+    const computedStyle = window.getComputedStyle(element);
+    const originalWidth = computedStyle.width;
+    const originalHTML = element.innerHTML.replace('Copied!', '');
+
+    navigator.clipboard.writeText(fullParamName)
+        .then(() => {
+            element.style.width = originalWidth;
+            element.style.color = 'green';
+            element.innerHTML = "Copied!";
+
+            setTimeout(() => {
+                element.innerHTML = originalHTML;
+                element.style = originalStyle;
+            }, 2000);
+        })
+        .catch(err => {
+            console.error('Failed to copy:', err);
+            element.style.color = 'red';
+            element.innerHTML = "Failed!";
+            setTimeout(() => {
+                element.innerHTML = originalHTML;
+                element.style = originalStyle;
+            }, 2000);
+        });
+    return false;
+}
+
+document.querySelectorAll('.copy-paste-icon').forEach(function(element) {
+    const toggleableContent = element.closest('.sk-toggleable__content');
+    const paramPrefix = toggleableContent ? toggleableContent.dataset.paramPrefix : '';
+
+    const parent = element.parentElement;
+    if (!parent || !parent.nextElementSibling) {
+        console.warn('Expected copy-paste icon is missing from the DOM structure');
+        return;
+    }
+
+    const paramName = element.parentElement.nextElementSibling
+        .textContent.trim().split(' ')[0];
+    const fullParamName = paramPrefix ? `${paramPrefix}${paramName}` : paramName;
+
+    element.setAttribute('title', fullParamName);
+});
+
+/**
+ * Copy the list of feature names formatted as a Python list.
+ *
+ * @param {HTMLElement} element - The copy button inside a `.features` block; its siblings
+ *   contain a `details` element and a table containing feature named.
+ * @returns {boolean} Always returns `false` so callers can prevent the default click behavior.
+ */
+function copyFeatureNamesToClipboard(element) {
+    var detailsElem = element.closest('.features').querySelector('details');
+    var wasOpen = detailsElem.open;
+    detailsElem.open = true;
+    var content = element.closest('.features').querySelector('tbody')
+                  .innerText.trim();
+    if (!wasOpen) detailsElem.open = false;
+    const rows = content.split('\n').map(row => `    "${row}"`);
+    const formattedText = `[\n${rows.join(',\n')},\n]`;
+    const originalHTML = element.innerHTML.replace('✔', '');
+    const originalStyle = element.style;
+    const copyMark = document.createElement('span');
+    copyMark.innerHTML = '✔';
+    copyMark.style.color = 'blue';
+    copyMark.style.fontSize = '1em';
+
+    navigator.clipboard.writeText(formattedText)
+        .then(() => {
+            element.style.display = 'none';
+            element.parentElement.appendChild(copyMark);
+
+            setTimeout(() => {
+                copyMark.remove();
+                element.innerHTML = originalHTML;
+                element.style = originalStyle;
+            }, 1000);
+        })
+        .catch(err => {
+            console.error('Failed to copy:', err);
+            element.style.color = 'orange';
+            element.innerHTML = "Failed!";
+            setTimeout(() => {
+                element.innerHTML = originalHTML;
+                element.style = originalStyle;
+            }, 1000);
+        });
+    return false;
+}
+/**
+ * Adapted from Skrub
+ * https://github.com/skrub-data/skrub/blob/403466d1d5d4dc76a7ef569b3f8228db59a31dc3/skrub/_reporting/_data/templates/report.js#L789
+ * @returns "light" or "dark"
+ */
+function detectTheme(element) {
+    const body = document.querySelector('body');
+
+    // Check VSCode theme
+    const themeKindAttr = body.getAttribute('data-vscode-theme-kind');
+    const themeNameAttr = body.getAttribute('data-vscode-theme-name');
+
+    if (themeKindAttr && themeNameAttr) {
+        const themeKind = themeKindAttr.toLowerCase();
+        const themeName = themeNameAttr.toLowerCase();
+
+        if (themeKind.includes("dark") || themeName.includes("dark")) {
+            return "dark";
+        }
+        if (themeKind.includes("light") || themeName.includes("light")) {
+            return "light";
+        }
+    }
+
+    // Check Jupyter theme
+    if (body.getAttribute('data-jp-theme-light') === 'false') {
+        return 'dark';
+    } else if (body.getAttribute('data-jp-theme-light') === 'true') {
+        return 'light';
+    }
+
+    // Guess based on a parent element's color
+    const color = window.getComputedStyle(element.parentNode, null).getPropertyValue('color');
+    const match = color.match(/^rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\s*$/i);
+    if (match) {
+        const [r, g, b] = [
+            parseFloat(match[1]),
+            parseFloat(match[2]),
+            parseFloat(match[3])
+        ];
+
+        // https://en.wikipedia.org/wiki/HSL_and_HSV#Lightness
+        const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        if (luma > 180) {
+            // If the text is very bright we have a dark theme
+            return 'dark';
+        }
+        if (luma < 75) {
+            // If the text is very dark we have a light theme
+            return 'light';
+        }
+        // Otherwise fall back to the next heuristic.
+    }
+
+    // Fallback to system preference
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+
+function forceTheme(elementId) {
+    const estimatorElement = document.querySelector(`#${elementId}`);
+    if (estimatorElement === null) {
+        console.error(`Element with id ${elementId} not found.`);
+    } else {
+        const theme = detectTheme(estimatorElement);
+        estimatorElement.classList.add(theme);
+    }
+}
+
+forceTheme('sk-container-id-6');</script></body>
+                    
+                </div>
                 
                 
                 
@@ -532,8 +1503,8 @@ pre, code {
                     
                     <div>
                         
-<div id="report_2fa321fd-wrapper" hidden>
-    <template id="report_2fa321fd-template">
+<div id="report_6c510dfe-wrapper" hidden>
+    <template id="report_6c510dfe-template">
         <style>
          /*!
 Pure v3.0.0
@@ -1852,7 +2823,7 @@ button.tab[data-has-warning]:not(:hover):not([data-is-selected]) {
         </div>
         <div class="column-filter" data-manager="InvisibleInAssociationsTabPanel">
     <select data-manager="ColumnFilter"
-            data-all-filters-base64="eyJhbGwoKSI6IHsiZGlzcGxheV9uYW1lIjogIkFsbCBjb2x1bW5zIiwgImNvbHVtbnMiOiBbMF19LCAiaGFzX251bGxzKDAuMCkiOiB7ImRpc3BsYXlfbmFtZSI6ICJXaXRoIG51bGxzIiwgImNvbHVtbnMiOiBbXX0sICIofmhhc19udWxscygwLjApKSI6IHsiZGlzcGxheV9uYW1lIjogIldpdGhvdXQgbnVsbHMiLCAiY29sdW1ucyI6IFswXX0sICJudW1lcmljKCkiOiB7ImRpc3BsYXlfbmFtZSI6ICJOdW1lcmljIiwgImNvbHVtbnMiOiBbMF19LCAiKH5udW1lcmljKCkpIjogeyJkaXNwbGF5X25hbWUiOiAiTm9uLW51bWVyaWMiLCAiY29sdW1ucyI6IFtdfSwgInN0cmluZygpIjogeyJkaXNwbGF5X25hbWUiOiAiU3RyaW5nIiwgImNvbHVtbnMiOiBbXX0sICIofnN0cmluZygpKSI6IHsiZGlzcGxheV9uYW1lIjogIk5vbi1zdHJpbmciLCAiY29sdW1ucyI6IFswXX0sICJjYXRlZ29yaWNhbCgpIjogeyJkaXNwbGF5X25hbWUiOiAiQ2F0ZWdvcmljYWwiLCAiY29sdW1ucyI6IFtdfSwgIih+Y2F0ZWdvcmljYWwoKSkiOiB7ImRpc3BsYXlfbmFtZSI6ICJOb24tY2F0ZWdvcmljYWwiLCAiY29sdW1ucyI6IFswXX0sICJhbnlfZGF0ZSgpIjogeyJkaXNwbGF5X25hbWUiOiAiRGF0ZXRpbWUiLCAiY29sdW1ucyI6IFtdfSwgIih+YW55X2RhdGUoKSkiOiB7ImRpc3BsYXlfbmFtZSI6ICJOb24tZGF0ZXRpbWUiLCAiY29sdW1ucyI6IFswXX19"
+            data-all-filters-base64="eyJhbGwoKSI6IHsiZGlzcGxheV9uYW1lIjogIkFsbCBjb2x1bW5zIiwgImNvbHVtbnMiOiBbMCwgMSwgMl19LCAiaGFzX251bGxzKDAuMCkiOiB7ImRpc3BsYXlfbmFtZSI6ICJXaXRoIG51bGxzIiwgImNvbHVtbnMiOiBbXX0sICIofmhhc19udWxscygwLjApKSI6IHsiZGlzcGxheV9uYW1lIjogIldpdGhvdXQgbnVsbHMiLCAiY29sdW1ucyI6IFswLCAxLCAyXX0sICJudW1lcmljKCkiOiB7ImRpc3BsYXlfbmFtZSI6ICJOdW1lcmljIiwgImNvbHVtbnMiOiBbMCwgMSwgMl19LCAiKH5udW1lcmljKCkpIjogeyJkaXNwbGF5X25hbWUiOiAiTm9uLW51bWVyaWMiLCAiY29sdW1ucyI6IFtdfSwgInN0cmluZygpIjogeyJkaXNwbGF5X25hbWUiOiAiU3RyaW5nIiwgImNvbHVtbnMiOiBbXX0sICIofnN0cmluZygpKSI6IHsiZGlzcGxheV9uYW1lIjogIk5vbi1zdHJpbmciLCAiY29sdW1ucyI6IFswLCAxLCAyXX0sICJjYXRlZ29yaWNhbCgpIjogeyJkaXNwbGF5X25hbWUiOiAiQ2F0ZWdvcmljYWwiLCAiY29sdW1ucyI6IFtdfSwgIih+Y2F0ZWdvcmljYWwoKSkiOiB7ImRpc3BsYXlfbmFtZSI6ICJOb24tY2F0ZWdvcmljYWwiLCAiY29sdW1ucyI6IFswLCAxLCAyXX0sICJhbnlfZGF0ZSgpIjogeyJkaXNwbGF5X25hbWUiOiAiRGF0ZXRpbWUiLCAiY29sdW1ucyI6IFtdfSwgIih+YW55X2RhdGUoKSkiOiB7ImRpc3BsYXlfbmFtZSI6ICJOb24tZGF0ZXRpbWUiLCAiY29sdW1ucyI6IFswLCAxLCAyXX19"
             data-test="column-filter-select"
             aria-label="Filter columns"
             autocomplete="off">
@@ -1950,7 +2921,7 @@ button.tab[data-has-warning]:not(:hover):not([data-is-selected]) {
         data-start-i="-1"
         data-stop-i="10"
         data-start-j="0"
-        data-stop-j="1"
+        data-stop-j="3"
         >
             
             
@@ -1960,7 +2931,7 @@ button.tab[data-has-warning]:not(:hover):not([data-is-selected]) {
                 
                 
                 <th
-                id="b25110ce"
+                id="0adea085"
                 class="table-cell elided-short clickable"
                 
                 data-role="column-name"
@@ -1981,12 +2952,72 @@ data-spans__-1__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="&#39;12h&#39;"
-                data-value-str="12h"
+                data-value-repr="&#39;q_0.05&#39;"
+                data-value-str="q_0.05"
                 
                 data-column-idx="0"
                 
-                >12h</th>
+                >q_0.05</th>
+                
+                
+                <th
+                id="db5f0f22"
+                class="table-cell elided-short clickable"
+                
+                data-role="column-name"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="-1"
+                data-j="1"
+                
+
+
+
+
+data-spans__-1__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="&#39;q_0.5&#39;"
+                data-value-str="q_0.5"
+                
+                data-column-idx="1"
+                
+                >q_0.5</th>
+                
+                
+                <th
+                id="35e8427d"
+                class="table-cell elided-short clickable"
+                
+                data-role="column-name"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="-1"
+                data-j="2"
+                
+
+
+
+
+data-spans__-1__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="&#39;q_0.95&#39;"
+                data-value-str="q_0.95"
+                
+                data-column-idx="2"
+                
+                >q_0.95</th>
                 
             </tr>
             
@@ -2000,7 +3031,7 @@ data-spans__-1__0
                 
                 
                 <td
-                id="00f83a2a"
+                id="b5854244"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2021,12 +3052,72 @@ data-spans__0__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="61958.0"
-                data-value-str="61958.0"
+                data-value-repr="61950.92858485564"
+                data-value-str="61950.92858485564"
                 
                 data-column-idx="0"
                 
                 >6.20e+04</td>
+                
+                
+                <td
+                id="0b87cb52"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="0"
+                data-j="1"
+                
+
+
+
+
+data-spans__0__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="61968.03036735618"
+                data-value-str="61968.03036735618"
+                
+                data-column-idx="1"
+                
+                >6.20e+04</td>
+                
+                
+                <td
+                id="2120f3ba"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="0"
+                data-j="2"
+                
+
+
+
+
+data-spans__0__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="67458.65413310558"
+                data-value-str="67458.65413310558"
+                
+                data-column-idx="2"
+                
+                >6.75e+04</td>
                 
             </tr>
             
@@ -2034,7 +3125,7 @@ data-spans__0__0
                 
                 
                 <td
-                id="abf1199c"
+                id="3fef8e8d"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2055,12 +3146,72 @@ data-spans__1__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="59169.0"
-                data-value-str="59169.0"
+                data-value-repr="59154.687566419685"
+                data-value-str="59154.687566419685"
                 
                 data-column-idx="0"
                 
                 >5.92e+04</td>
+                
+                
+                <td
+                id="7ac4a125"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="1"
+                data-j="1"
+                
+
+
+
+
+data-spans__1__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="59159.46075242737"
+                data-value-str="59159.46075242737"
+                
+                data-column-idx="1"
+                
+                >5.92e+04</td>
+                
+                
+                <td
+                id="3975f001"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="1"
+                data-j="2"
+                
+
+
+
+
+data-spans__1__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="64511.83998182608"
+                data-value-str="64511.83998182608"
+                
+                data-column-idx="2"
+                
+                >6.45e+04</td>
                 
             </tr>
             
@@ -2068,7 +3219,7 @@ data-spans__1__0
                 
                 
                 <td
-                id="59d6c951"
+                id="5b26d9c7"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2089,12 +3240,72 @@ data-spans__2__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="56938.0"
-                data-value-str="56938.0"
+                data-value-repr="57310.836227675245"
+                data-value-str="57310.836227675245"
                 
                 data-column-idx="0"
                 
-                >5.69e+04</td>
+                >5.73e+04</td>
+                
+                
+                <td
+                id="1e12a9b6"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="2"
+                data-j="1"
+                
+
+
+
+
+data-spans__2__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="57440.656299051756"
+                data-value-str="57440.656299051756"
+                
+                data-column-idx="1"
+                
+                >5.74e+04</td>
+                
+                
+                <td
+                id="a31c4f15"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="2"
+                data-j="2"
+                
+
+
+
+
+data-spans__2__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="63043.294000763446"
+                data-value-str="63043.294000763446"
+                
+                data-column-idx="2"
+                
+                >6.30e+04</td>
                 
             </tr>
             
@@ -2102,7 +3313,7 @@ data-spans__2__0
                 
                 
                 <td
-                id="2c878c51"
+                id="06e3eaad"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2123,12 +3334,72 @@ data-spans__3__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="55232.0"
-                data-value-str="55232.0"
+                data-value-repr="55223.74642146816"
+                data-value-str="55223.74642146816"
                 
                 data-column-idx="0"
                 
                 >5.52e+04</td>
+                
+                
+                <td
+                id="e6be558f"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="3"
+                data-j="1"
+                
+
+
+
+
+data-spans__3__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="56487.37238013685"
+                data-value-str="56487.37238013685"
+                
+                data-column-idx="1"
+                
+                >5.65e+04</td>
+                
+                
+                <td
+                id="0331c240"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="3"
+                data-j="2"
+                
+
+
+
+
+data-spans__3__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="63611.628564793464"
+                data-value-str="63611.628564793464"
+                
+                data-column-idx="2"
+                
+                >6.36e+04</td>
                 
             </tr>
             
@@ -2136,7 +3407,7 @@ data-spans__3__0
                 
                 
                 <td
-                id="edcbcca1"
+                id="0ff0173f"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2157,12 +3428,72 @@ data-spans__4__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="55484.0"
-                data-value-str="55484.0"
+                data-value-repr="55464.80414734753"
+                data-value-str="55464.80414734753"
                 
                 data-column-idx="0"
                 
                 >5.55e+04</td>
+                
+                
+                <td
+                id="d787a314"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="4"
+                data-j="1"
+                
+
+
+
+
+data-spans__4__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="57399.939495296494"
+                data-value-str="57399.939495296494"
+                
+                data-column-idx="1"
+                
+                >5.74e+04</td>
+                
+                
+                <td
+                id="e0ee7e15"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="4"
+                data-j="2"
+                
+
+
+
+
+data-spans__4__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="62167.17423439233"
+                data-value-str="62167.17423439233"
+                
+                data-column-idx="2"
+                
+                >6.22e+04</td>
                 
             </tr>
             
@@ -2183,6 +3514,26 @@ data-spans__4__0
   <path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/>
 </svg></div></td>
                     
+                    <td
+                        
+                        data-manager="FilterableColumn"
+                        data-column-idx="1"
+                        data-role="ellipsis"
+                        
+                        ><div class="ellipsis-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
+  <path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/>
+</svg></div></td>
+                    
+                    <td
+                        
+                        data-manager="FilterableColumn"
+                        data-column-idx="2"
+                        data-role="ellipsis"
+                        
+                        ><div class="ellipsis-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
+  <path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/>
+</svg></div></td>
+                    
                 </tr>
             </tbody>
             
@@ -2194,7 +3545,7 @@ data-spans__4__0
                 
                 
                 <td
-                id="a2585590"
+                id="e80bbae5"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2215,10 +3566,70 @@ data-spans__5__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="40154.0"
-                data-value-str="40154.0"
+                data-value-repr="38640.83717630412"
+                data-value-str="38640.83717630412"
                 
                 data-column-idx="0"
+                
+                >3.86e+04</td>
+                
+                
+                <td
+                id="df11e3e7"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="5"
+                data-j="1"
+                
+
+
+
+
+data-spans__5__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="39376.13585200033"
+                data-value-str="39376.13585200033"
+                
+                data-column-idx="1"
+                
+                >3.94e+04</td>
+                
+                
+                <td
+                id="1fa5dcc1"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="5"
+                data-j="2"
+                
+
+
+
+
+data-spans__5__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="40197.38668207499"
+                data-value-str="40197.38668207499"
+                
+                data-column-idx="2"
                 
                 >4.02e+04</td>
                 
@@ -2228,7 +3639,7 @@ data-spans__5__0
                 
                 
                 <td
-                id="8ba05c36"
+                id="561b5e08"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2249,12 +3660,72 @@ data-spans__6__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="41428.25"
-                data-value-str="41428.25"
+                data-value-repr="40056.37733325722"
+                data-value-str="40056.37733325722"
                 
                 data-column-idx="0"
                 
+                >4.01e+04</td>
+                
+                
+                <td
+                id="c3eff995"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="6"
+                data-j="1"
+                
+
+
+
+
+data-spans__6__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="41418.636737268"
+                data-value-str="41418.636737268"
+                
+                data-column-idx="1"
+                
                 >4.14e+04</td>
+                
+                
+                <td
+                id="72af943c"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="6"
+                data-j="2"
+                
+
+
+
+
+data-spans__6__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="41466.434954225086"
+                data-value-str="41466.434954225086"
+                
+                data-column-idx="2"
+                
+                >4.15e+04</td>
                 
             </tr>
             
@@ -2262,7 +3733,7 @@ data-spans__6__0
                 
                 
                 <td
-                id="13ec70f1"
+                id="6647d64a"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2283,10 +3754,70 @@ data-spans__7__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="43159.0"
-                data-value-str="43159.0"
+                data-value-repr="41313.97372889888"
+                data-value-str="41313.97372889888"
                 
                 data-column-idx="0"
+                
+                >4.13e+04</td>
+                
+                
+                <td
+                id="939c2b0d"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="7"
+                data-j="1"
+                
+
+
+
+
+data-spans__7__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="43073.01446751397"
+                data-value-str="43073.01446751397"
+                
+                data-column-idx="1"
+                
+                >4.31e+04</td>
+                
+                
+                <td
+                id="ec001f51"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="7"
+                data-j="2"
+                
+
+
+
+
+data-spans__7__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="43175.612907283816"
+                data-value-str="43175.612907283816"
+                
+                data-column-idx="2"
                 
                 >4.32e+04</td>
                 
@@ -2296,7 +3827,7 @@ data-spans__7__0
                 
                 
                 <td
-                id="44c920bf"
+                id="6b2ab19a"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2317,12 +3848,72 @@ data-spans__8__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="41734.0"
-                data-value-str="41734.0"
+                data-value-repr="40213.16057402654"
+                data-value-str="40213.16057402654"
                 
                 data-column-idx="0"
                 
+                >4.02e+04</td>
+                
+                
+                <td
+                id="4a450f44"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="8"
+                data-j="1"
+                
+
+
+
+
+data-spans__8__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="41739.58013028333"
+                data-value-str="41739.58013028333"
+                
+                data-column-idx="1"
+                
                 >4.17e+04</td>
+                
+                
+                <td
+                id="aba74cce"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="8"
+                data-j="2"
+                
+
+
+
+
+data-spans__8__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="41854.074347554"
+                data-value-str="41854.074347554"
+                
+                data-column-idx="2"
+                
+                >4.19e+04</td>
                 
             </tr>
             
@@ -2330,7 +3921,7 @@ data-spans__8__0
                 
                 
                 <td
-                id="d85b3b18"
+                id="5b911b13"
                 class="table-cell elided-short clickable"
                 
                 data-role="dataframe-data"
@@ -2351,12 +3942,72 @@ data-spans__9__0
 
                 rowspan="1"
                 colspan="1"
-                data-value-repr="40325.75"
-                data-value-str="40325.75"
+                data-value-repr="39039.10617443978"
+                data-value-str="39039.10617443978"
                 
                 data-column-idx="0"
                 
+                >3.90e+04</td>
+                
+                
+                <td
+                id="fe5a9db0"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="9"
+                data-j="1"
+                
+
+
+
+
+data-spans__9__1
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="40329.55211948618"
+                data-value-str="40329.55211948618"
+                
+                data-column-idx="1"
+                
                 >4.03e+04</td>
+                
+                
+                <td
+                id="65c50671"
+                class="table-cell elided-short clickable"
+                
+                data-role="dataframe-data"
+                
+                
+                data-manager="SampleTableCell FilterableColumn"
+                
+                data-i="9"
+                data-j="2"
+                
+
+
+
+
+data-spans__9__2
+
+
+
+                rowspan="1"
+                colspan="1"
+                data-value-repr="40496.3402054329"
+                data-value-str="40496.3402054329"
+                
+                data-column-idx="2"
+                
+                >4.05e+04</td>
                 
             </tr>
             
@@ -2370,7 +4021,7 @@ data-spans__9__0
     <div>
         <strong>36,614</strong> rows ✕
         <strong data-manager="ColumnFilterMatchCount"
-            data-test="n-columns-display">1</strong> columns
+            data-test="n-columns-display">3</strong> columns
         
     </div>
     <div class=" keyboard-hints">
@@ -2405,8 +4056,8 @@ data-spans__9__0
         
 
 <div class="card column-summary" id="col_0_in_sample_tab"
-    data-name-repr="&#39;12h&#39;"
-    data-column-name="12h"
+    data-name-repr="&#39;q_0.05&#39;"
+    data-column-name="q_0.05"
     data-column-idx="0"
      
      
@@ -2416,9 +4067,9 @@ data-spans__9__0
     <div class="card-header">
         <h3>
             
-            <span class="select-all wrap-long-name">12h</span>
+            <span class="select-all wrap-long-name">q_0.05</span>
         </h3>
-        <span>Float32</span>
+        <span>Float64</span>
 <button class="close-card-button"
         type="button"
         aria-label="Close"
@@ -2437,7 +4088,93 @@ data-spans__9__0
                 
                 <dt>Unique values</dt>
                 <dd>
-                    24,719 (67.5%)
+                    36,614 (100.0%)
+                    
+                    <span class="toggletip-wrapper">
+                        <div class="toggletip" data-manager="Toggletip">
+                        <button type="button"><span>i</span></button>
+                        <div class="toggletip-info box-shadow">
+                            This column has a high cardinality (> 40).
+                        </div>
+                    </span>
+                    
+                </dd>
+                
+
+                
+                
+                
+
+                
+                <dt>Mean ± Std</dt>
+                <dd>4.84e+04 ±
+                    9.89e+03
+                    
+                </dd>
+                
+                
+                <dt>Median ± IQR</dt>
+                <dd>4.68e+04 ±
+                    1.35e+04
+                    
+                </dd>
+
+                <dt>Min | Max</dt>
+                <dd>
+                    <span class="min-value">2.86e+04</span> |
+                    <span class="max-value">7.74e+04</span>
+                    
+                </dd>
+                
+                
+
+                
+            </dl>
+        </div>
+
+        
+
+        
+    </div>
+</div>
+        
+        
+        
+
+<div class="card column-summary" id="col_1_in_sample_tab"
+    data-name-repr="&#39;q_0.5&#39;"
+    data-column-name="q_0.5"
+    data-column-idx="1"
+     
+     
+    data-manager="FilterableColumn SampleColumnSummary"
+    
+     data-role="sample-column" data-hidden >
+    <div class="card-header">
+        <h3>
+            
+            <span class="select-all wrap-long-name">q_0.5</span>
+        </h3>
+        <span>Float64</span>
+<button class="close-card-button"
+        type="button"
+        aria-label="Close"
+        data-role="close-button">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
+  <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+</svg>
+</button>
+</div>
+    <div class="column-summary-content wrapper">
+        <div>
+            <dl>
+                <dt>Null values</dt>
+               <dd class="ok">0 (0.0%)</dd>
+                
+                
+                <dt>Unique values</dt>
+                <dd>
+                    36,614 (100.0%)
                     
                     <span class="toggletip-wrapper">
                         <div class="toggletip" data-manager="Toggletip">
@@ -2470,8 +4207,94 @@ data-spans__9__0
 
                 <dt>Min | Max</dt>
                 <dd>
-                    <span class="min-value">2.87e+04</span> |
-                    <span class="max-value">8.66e+04</span>
+                    <span class="min-value">2.88e+04</span> |
+                    <span class="max-value">8.61e+04</span>
+                    
+                </dd>
+                
+                
+
+                
+            </dl>
+        </div>
+
+        
+
+        
+    </div>
+</div>
+        
+        
+        
+
+<div class="card column-summary" id="col_2_in_sample_tab"
+    data-name-repr="&#39;q_0.95&#39;"
+    data-column-name="q_0.95"
+    data-column-idx="2"
+     
+     
+    data-manager="FilterableColumn SampleColumnSummary"
+    
+     data-role="sample-column" data-hidden >
+    <div class="card-header">
+        <h3>
+            
+            <span class="select-all wrap-long-name">q_0.95</span>
+        </h3>
+        <span>Float64</span>
+<button class="close-card-button"
+        type="button"
+        aria-label="Close"
+        data-role="close-button">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
+  <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+</svg>
+</button>
+</div>
+    <div class="column-summary-content wrapper">
+        <div>
+            <dl>
+                <dt>Null values</dt>
+               <dd class="ok">0 (0.0%)</dd>
+                
+                
+                <dt>Unique values</dt>
+                <dd>
+                    36,614 (100.0%)
+                    
+                    <span class="toggletip-wrapper">
+                        <div class="toggletip" data-manager="Toggletip">
+                        <button type="button"><span>i</span></button>
+                        <div class="toggletip-info box-shadow">
+                            This column has a high cardinality (> 40).
+                        </div>
+                    </span>
+                    
+                </dd>
+                
+
+                
+                
+                
+
+                
+                <dt>Mean ± Std</dt>
+                <dd>5.13e+04 ±
+                    1.05e+04
+                    
+                </dd>
+                
+                
+                <dt>Median ± IQR</dt>
+                <dd>4.95e+04 ±
+                    1.45e+04
+                    
+                </dd>
+
+                <dt>Min | Max</dt>
+                <dd>
+                    <span class="min-value">3.16e+04</span> |
+                    <span class="max-value">8.67e+04</span>
                     
                 </dd>
                 
@@ -2843,37 +4666,107 @@ No columns match the selected filter: <strong data-manager="ColumnFilterName"></
             </thead>
             <tbody>
                 
-                <tr data-manager="FilterableColumn" data-column-name="12h"
+                <tr data-manager="FilterableColumn" data-column-name="q_0.05"
                     data-column-idx="0" data-dataframe-column-idx="0">
                     <td data-value="0" data-numeric>0
                     </td>
-                    <td class="elided">12h</td>
-                    <td>Float32</td>
+                    <td class="elided">q_0.05</td>
+                    <td>Float64</td>
                     <td>False</td>
                     <td class="ok" data-value="0" data-numeric>
                         0 (0.0%)
                     </td>
 
                     
-                    <td data-value="24719" data-numeric>
-                        24719 (67.5%)
+                    <td data-value="36614" data-numeric>
+                        36614 (100.0%)
                     </td>
                     
 
                     
-                    <td data-value="49827.691688971434" data-numeric>
+                    <td data-value="48445.25246112022" data-numeric>
+                        4.84e+04</td>
+                    <td data-value="9889.68125757493" data-numeric>
+                        9.89e+03</td>
+                    
+
+                    
+                    <td data-value="28593.209306017125" data-numeric>
+                        2.86e+04</td>
+                    <td data-value="46837.379928712035" data-numeric>
+                        4.68e+04</td>
+                    <td data-value="77402.00570658671" data-numeric>
+                        7.74e+04</td>
+                    
+
+                </tr>
+                
+                <tr data-manager="FilterableColumn" data-column-name="q_0.5"
+                    data-column-idx="1" data-dataframe-column-idx="1">
+                    <td data-value="1" data-numeric>1
+                    </td>
+                    <td class="elided">q_0.5</td>
+                    <td>Float64</td>
+                    <td>False</td>
+                    <td class="ok" data-value="0" data-numeric>
+                        0 (0.0%)
+                    </td>
+
+                    
+                    <td data-value="36614" data-numeric>
+                        36614 (100.0%)
+                    </td>
+                    
+
+                    
+                    <td data-value="49818.99517126078" data-numeric>
                         4.98e+04</td>
-                    <td data-value="10447.224609375" data-numeric>
+                    <td data-value="10405.445737530663" data-numeric>
                         1.04e+04</td>
                     
 
                     
-                    <td data-value="28744.0" data-numeric>
-                        2.87e+04</td>
-                    <td data-value="48097.0" data-numeric>
+                    <td data-value="28790.566920583868" data-numeric>
+                        2.88e+04</td>
+                    <td data-value="48074.949084879714" data-numeric>
                         4.81e+04</td>
-                    <td data-value="86645.75" data-numeric>
-                        8.66e+04</td>
+                    <td data-value="86139.15461228347" data-numeric>
+                        8.61e+04</td>
+                    
+
+                </tr>
+                
+                <tr data-manager="FilterableColumn" data-column-name="q_0.95"
+                    data-column-idx="2" data-dataframe-column-idx="2">
+                    <td data-value="2" data-numeric>2
+                    </td>
+                    <td class="elided">q_0.95</td>
+                    <td>Float64</td>
+                    <td>False</td>
+                    <td class="ok" data-value="0" data-numeric>
+                        0 (0.0%)
+                    </td>
+
+                    
+                    <td data-value="36614" data-numeric>
+                        36614 (100.0%)
+                    </td>
+                    
+
+                    
+                    <td data-value="51281.75997887516" data-numeric>
+                        5.13e+04</td>
+                    <td data-value="10521.118720871682" data-numeric>
+                        1.05e+04</td>
+                    
+
+                    
+                    <td data-value="31621.144728024876" data-numeric>
+                        3.16e+04</td>
+                    <td data-value="49458.51185858585" data-numeric>
+                        4.95e+04</td>
+                    <td data-value="86653.00062372719" data-numeric>
+                        8.67e+04</td>
                     
 
                 </tr>
@@ -2906,7 +4799,7 @@ No columns match the selected filter: <strong data-manager="ColumnFilterName"></
         </div>
     </template>
 
-    <skrub-table-report class="report" id="report_2fa321fd">
+    <skrub-table-report class="report" id="report_6c510dfe">
     </skrub-table-report>
 
     <script type="module">
@@ -4010,7 +5903,7 @@ No columns match the selected filter: <strong data-manager="ColumnFilterName"></
     </script>
 </div>
 
-<div id="report_2fa321fd-wrapper-fallback">
+<div id="report_6c510dfe-wrapper-fallback">
     <h2>Please enable javascript</h2>
     <p>
         The skrub table reports need javascript to display correctly. If you are
@@ -4021,8 +5914,8 @@ No columns match the selected filter: <strong data-manager="ColumnFilterName"></
 </div>
 
 <script>
- document.getElementById("report_2fa321fd-wrapper").removeAttribute("hidden");
- document.getElementById("report_2fa321fd-wrapper-fallback").setAttribute("hidden", "");
+ document.getElementById("report_6c510dfe-wrapper").removeAttribute("hidden");
+ document.getElementById("report_6c510dfe-wrapper-fallback").setAttribute("hidden", "");
 </script>
                     </div>
                 </div>

@@ -13,7 +13,7 @@ import argparse
 from pathlib import Path
 
 import plotly.graph_objects as go
-import polars as pl
+from compare_predictions import read_predictions
 from model_registry import canonical_order, model_colour
 from plotly.subplots import make_subplots
 
@@ -26,7 +26,9 @@ def load_models(directory):
     paths = sorted(directory.glob("*_cv_predictions.parquet"))
     if not paths:
         raise SystemExit(f"no *_cv_predictions.parquet found in {directory}")
-    frames = {p.stem.removesuffix("_cv_predictions"): pl.read_parquet(p) for p in paths}
+    frames = {
+        p.stem.removesuffix("_cv_predictions"): read_predictions(p) for p in paths
+    }
     models = []
     for name in canonical_order(frames):
         df = frames[name]

@@ -23,7 +23,7 @@ import argparse
 from pathlib import Path
 
 import polars as pl
-from compare_predictions import horizons_of, quantile_levels_of
+from compare_predictions import horizons_of, quantile_levels_of, read_predictions
 from model_registry import canonical_order, model_colour
 
 import electricity_load_forecasting as elf
@@ -35,7 +35,7 @@ args = parser.parse_args()
 paths = sorted(args.dir.glob("*_cv_predictions.parquet"))
 if not paths:
     raise SystemExit(f"no *_cv_predictions.parquet found in {args.dir}")
-frames = {p.stem.removesuffix("_cv_predictions"): pl.read_parquet(p) for p in paths}
+frames = {p.stem.removesuffix("_cv_predictions"): read_predictions(p) for p in paths}
 frames = {name: frames[name] for name in canonical_order(frames)}
 
 horizons = sorted({h for df in frames.values() for h in horizons_of(df)})
