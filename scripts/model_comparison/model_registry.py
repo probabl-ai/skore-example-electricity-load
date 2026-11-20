@@ -35,6 +35,7 @@ MODEL_ORDER = [
     "hgb_quantile_recal_q7",
     "hgb_quantile_conformal_q7",
     "tabicl_n8_full",
+    "tabicl_recal_n8_full",
     "tabicl_conformal_n8",
     "tabicl_forecast_ctx1024_n4",
     "kumo_tabular",

@@ -41,6 +41,7 @@ EXTRA_LABELS = {
     "hgb_quantile_conformal_q7": "HGB q7 conf",
     "tabicl_conformal_n8": "TabICL n8 conf",
     "tabicl_conformal_n8_full": "TabICL n8 conf",
+    "tabicl_recal_n8_full": "TabICL n8 recal",
 }
 LABEL_ORDER = [
     "Chronos-2",
@@ -50,6 +51,7 @@ LABEL_ORDER = [
     "HGB q7 conf",
     "Kumo-Tabular",
     "TabICL n8",
+    "TabICL n8 recal",
     "TabICL n8 conf",
     "TabICLForecaster",
 ]

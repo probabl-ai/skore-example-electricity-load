@@ -69,6 +69,7 @@ SHORT_LABELS = {
     "hgb_quantile_recal_q7": "HGB q7 recal",
     "hgb_quantile_conformal_q7": "HGB q7 conf",
     "tabicl_n8_full": "TabICL n8",
+    "tabicl_recal_n8_full": "TabICL n8 recal",
     "tabicl_conformal_n8": "TabICL n8 conf",
     "tabicl_forecast_ctx1024_n4": "TabICLForecaster",
     "chronos2_ctx4000": "Chronos-2",
@@ -80,6 +81,7 @@ SUMMARY_LABELS = {
     "hgb_mean": "HGB mean",
     "hgb_mean_fast": "HGB mean fast",
     "tabicl_n8_full": "TabICL",
+    "tabicl_recal_n8_full": "TabICL recalibrated",
     "tabicl_forecast_ctx1024_n4": "TabICL forecast",
     "kumo_tabular": "Kumo-Tabular",
     "kumo_forecast": "KumoForecast",
@@ -120,6 +122,10 @@ parser.add_argument(
 )
 parser.add_argument("--figure_height", type=int, default=480)
 parser.add_argument("--page_width", type=int, default=1100)
+parser.add_argument(
+    "--note",
+    help="extra paragraph added under the report title (plain text)",
+)
 args = parser.parse_args()
 LABELS = SUMMARY_LABELS if args.summary_labels else SHORT_LABELS
 FIGURE_HEIGHT = args.figure_height
@@ -1330,6 +1336,7 @@ operator_note = (
     if args.operator
     else ""
 )
+note = f"<p>{escape(args.note)}</p>" if args.note else ""
 
 page = f"""
 <!DOCTYPE html>
@@ -1353,6 +1360,7 @@ tbody tr:hover {{ background-color: #eef3ff; }}
 width use all available quantiles ("-" = model has no quantiles).
 All rows across the 8 CV folds are pooled.</p>
 {operator_note}
+{note}
 {table_controls}
 {table_html}
 <h1>Plots</h1>

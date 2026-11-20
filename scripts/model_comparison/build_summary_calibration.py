@@ -27,6 +27,7 @@ MODELS = {
     "hgb_quantile_q7": "HGB quantile",
     "hgb_quantile_recal_q7": "HGB quantile recalibrated",
     "tabicl_n8_full": "TabICL",
+    "tabicl_recal_n8_full": "TabICL recalibrated",
     "tabicl_forecast_ctx1024_n4": "TabICL forecast",
     "kumo_tabular": "Kumo-Tabular",
     "chronos2_ctx4000": "Chronos-2",
