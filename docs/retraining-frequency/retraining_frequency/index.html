@@ -11,6 +11,13 @@ th:first-child, td:first-child { text-align: left; }
 </style>
 </head>
 <body><!-- back-to-index --><div style="font-family: sans-serif; font-size: 0.9em; padding: 0.4em 0;"><a href="../../index.html">&larr; Back to index</a></div>
+<div style="font-family: sans-serif; background: #fff3cd; border: 1px solid #ffc107; padding: 0.6em 1em; margin: 1em 0;">
+<strong>Work in progress &mdash; do not take these results at face value.</strong>
+The binning is buggy (days 84&ndash;90 lumped into the "70&ndash;83" bin), there is
+no stale-free control and no standard errors, and the "retrain monthly"
+recommendation is unsupported. See
+<code>results/inspection/retraining_frequency/WARNING.md</code>.
+</div>
 <h1>Retraining frequency: metric drift since the last retraining</h1>
 <p>Each CV test fold is binned by elapsed days since the fold start (the
 retraining point), in two-week bins. The last partial week is excluded. Points

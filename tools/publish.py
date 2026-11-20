@@ -21,8 +21,14 @@ SECTION_TITLES = {
     "checks": "Checks",
     "misc": "Miscellaneous",
     "reports": "Other reports",
-    "model-comparison": "Model comparison (oracle weather, archived)",
 }
+
+# Directories whose published pages must NOT appear in docs/index.html. The
+# oracle-weather model comparison is archived, and the history-length and
+# retraining-frequency studies are known to be flawed (see their WARNING.md and
+# _scratch/REVIEW_REPORT_2.md findings 1.7 / 1.8); they stay on disk but are
+# hidden from the index.
+HIDDEN_SECTIONS = {"model-comparison", "history-length", "retraining-frequency"}
 
 
 def parse_args():
@@ -216,6 +222,7 @@ def build_index():
         relative = path.relative_to(DOCS)
         key = relative.parts[0] if len(relative.parts) > 1 else "reports"
         groups.setdefault(key, []).append(path)
+    groups = {k: v for k, v in groups.items() if k not in HIDDEN_SECTIONS}
 
     order = [key for key in SECTION_TITLES if key in groups]
     order += sorted(key for key in groups if key not in SECTION_TITLES)
