@@ -120,7 +120,7 @@ parser.add_argument(
     type=Path,
     help="write only the Pareto page to this path and exit",
 )
-parser.add_argument("--figure_height", type=int, default=480)
+parser.add_argument("--figure_height", type=int, default=300)
 parser.add_argument("--page_width", type=int, default=1100)
 parser.add_argument(
     "--note",
@@ -246,9 +246,9 @@ def time_breakdown(path):
     return None, None, None
 
 
-def average_pinball_loss(df):
-    """Mean pinball loss (MW) over 5/50/95% quantiles and all horizons."""
-    hs = horizons_of(df)
+def average_pinball_loss(df, horizon=None):
+    """Mean pinball loss (MW) over 5/50/95% quantiles, one horizon or all."""
+    hs = [horizon] if horizon is not None else horizons_of(df)
     levels = quantile_levels_of(df, hs[0])
     chosen = [
         q for q in levels if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
@@ -265,6 +265,18 @@ def average_pinball_loss(df):
                 mean_pinball_loss(y, df[f"pred_{h}h__q_{q}"].to_numpy(), alpha=q)
             )
     return float(np.mean(losses))
+
+
+def pinball_row_loss(df, horizon):
+    """Per-row pinball loss (MW) at one horizon, over the 5/50/95% quantiles."""
+    levels = quantile_levels_of(df, horizon)
+    chosen = [
+        q for q in levels if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
+    ]
+    chosen = chosen or levels
+    if not chosen:
+        return None
+    return np.mean([row_loss(df, "pinball", horizon, q) for q in chosen], axis=0)
 
 
 fold_scores = {}
@@ -592,12 +604,42 @@ def coverage_width_figure(fold_scores):
     return fig
 
 
+PARETO_HORIZONS = [("average", "avg")] + [
+    (h, f"{h}h") for h in horizons_of(next(iter(frames.values())))
+]
+
+
+def pareto_value(record, metric, key):
+    return record[metric] if key == "average" else record[f"{metric}_h"][key]
+
+
+def pareto_rows(record, metric, key):
+    return (
+        record[f"{metric}_rows"]
+        if key == "average"
+        else record[f"{metric}_rows_h"][key]
+    )
+
+
 pareto_records = []
 for path in paths:
     name = path.stem.removesuffix("_cv_predictions")
+    df = frames[name]
     mape_values = 100 * fold_scores[name]["mape__average"]
     pinball_values = fold_pinball[name]
     fit_time, score_time, total_time = time_breakdown(path)
+    splits = sorted(df["split"].unique().to_list())
+    mape_h = {
+        h: float(np.mean(100 * fold_scores[name][f"mape__{h}h"]))
+        for h in horizons_of(df)
+    }
+    pinball_h = {}
+    for h in horizons_of(df):
+        values = [
+            average_pinball_loss(df.filter(pl.col("split") == split), horizon=h)
+            for split in splits
+        ]
+        pinball_h[h] = None if any(v is None for v in values) else float(np.mean(values))
     records = {
         "name": name,
         "fit_time": fit_time,
@@ -611,8 +653,12 @@ for path in paths:
         ),
         "mape_values": mape_values,
         "pinball_values": pinball_values,
-        "mape_rows": average_row_loss(frames[name], "mape"),
-        "pinball_rows": average_row_loss(frames[name], "pinball"),
+        "mape_rows": average_row_loss(df, "mape"),
+        "pinball_rows": average_row_loss(df, "pinball"),
+        "mape_h": mape_h,
+        "pinball_h": pinball_h,
+        "mape_rows_h": {h: row_loss(df, "mape", h) for h in horizons_of(df)},
+        "pinball_rows_h": {h: pinball_row_loss(df, h) for h in horizons_of(df)},
     }
     pareto_records.append(records)
 
@@ -621,194 +667,235 @@ if missing_times:
     print("warning: no fit+predict time for", ", ".join(missing_times))
 
 
-def pareto_frontier(records, metric, x_field="time"):
-    """Points not dominated on (lower x_field, lower metric)."""
+def pareto_frontier(records, value_key, x_field="time"):
+    """Points not dominated on (lower x_field, lower value)."""
     frontier, best = [], float("inf")
-    for record in sorted(records, key=lambda r: (r[x_field], r[metric])):
-        if record[metric] < best:
+    for record in sorted(records, key=lambda r: (r[x_field], r[value_key])):
+        if record[value_key] < best:
             frontier.append(record)
-            best = record[metric]
+            best = record[value_key]
     return frontier
 
 
-def alternating_text_positions(data, x_field, metric):
-    """Alternate labels above/below points, ordered by cost then metric."""
+def alternating_text_positions(data, x_field, value_key):
+    """Alternate labels above/below points, ordered by cost then value."""
     positions = ["top center"] * len(data)
-    order = sorted(range(len(data)), key=lambda i: (data[i][x_field], data[i][metric]))
+    order = sorted(range(len(data)), key=lambda i: (data[i][x_field], data[i][value_key]))
     for rank, i in enumerate(order):
         positions[i] = "top center" if rank % 2 == 0 else "bottom center"
     return positions
 
 
-def pareto_figure(
-    records,
-    metric,
-    title,
-    y_title,
-    hover_format,
-    x_field="time",
-    x_title="Fit + predict time (s, log scale)<br>(sum over all folds)",
-):
-    data = [r for r in records if r[x_field] is not None and r[metric] is not None]
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=[r[x_field] for r in data],
-            y=[r[metric] for r in data],
-            mode="markers+text",
-            text=[short_label(r["name"]) for r in data],
-            textposition=alternating_text_positions(data, x_field, metric),
-            textfont={"size": 12},
-            cliponaxis=False,
-            marker={"size": 10, "color": "#1f77b4"},
-            customdata=[[r["name"]] for r in data],
-            hovertemplate=(
-                "%{customdata[0]}<br>cost: %{x:,.0f} s<br>"
-                + hover_format
-                + "<extra></extra>"
-            ),
-            name="models",
-        )
+PARETO_HORIZON_LABELS = [label for _, label in PARETO_HORIZONS]
+
+
+def _pareto_data(records, metric, key, x_field):
+    """Resolved ``(name, cost, value)`` records for one metric/horizon."""
+    data = []
+    for r in records:
+        value = pareto_value(r, metric, key)
+        if r[x_field] is None or value is None:
+            continue
+        data.append({"name": r["name"], x_field: r[x_field], "value": value})
+    return data
+
+
+def pareto_grid_figure(records, x_field, x_title, metrics):
+    """Absolute accuracy vs time, one column per metric, one row per horizon.
+
+    ``metrics`` is a list of ``(metric, short_name, hover_format)``.
+    """
+    fig = make_subplots(
+        rows=len(PARETO_HORIZONS),
+        cols=len(metrics),
+        subplot_titles=[
+            f"{short} {label}"
+            for label in PARETO_HORIZON_LABELS
+            for _, short, _ in metrics
+        ],
+        vertical_spacing=0.09,
+        horizontal_spacing=0.10,
     )
-    frontier = pareto_frontier(data, metric, x_field)
-    if len(frontier) > 1:
-        fig.add_trace(
-            go.Scatter(
-                x=[r[x_field] for r in frontier],
-                y=[r[metric] for r in frontier],
-                mode="lines+markers",
-                line={"color": "#d62728", "dash": "dash"},
-                marker={"size": 7, "color": "#d62728"},
-                name="Pareto frontier",
-                hoverinfo="skip",
+    for row, (key, _) in enumerate(PARETO_HORIZONS, 1):
+        for col, (metric, _, hover_format) in enumerate(metrics, 1):
+            data = _pareto_data(records, metric, key, x_field)
+            fig.add_trace(
+                go.Scatter(
+                    x=[r[x_field] for r in data],
+                    y=[r["value"] for r in data],
+                    mode="markers+text",
+                    text=[short_label(r["name"]) for r in data],
+                    textposition=alternating_text_positions(data, x_field, "value"),
+                    textfont={"size": 9},
+                    cliponaxis=False,
+                    marker={"size": 7, "color": "#1f77b4"},
+                    customdata=[[r["name"]] for r in data],
+                    hovertemplate=(
+                        "%{customdata[0]}<br>cost: %{x:,.0f} s<br>"
+                        + hover_format
+                        + "<extra></extra>"
+                    ),
+                    showlegend=False,
+                ),
+                row=row,
+                col=col,
             )
-        )
-    fig.update_xaxes(
-        type="log",
-        title_text=x_title,
-    )
-    fig.update_yaxes(title_text=y_title)
+            frontier = pareto_frontier(data, "value", x_field)
+            if len(frontier) > 1:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[r[x_field] for r in frontier],
+                        y=[r["value"] for r in frontier],
+                        mode="lines+markers",
+                        line={"color": "#d62728", "dash": "dash"},
+                        marker={"size": 5, "color": "#d62728"},
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ),
+                    row=row,
+                    col=col,
+                )
+    fig.update_xaxes(type="log")
+    fig.update_xaxes(title_text=x_title, row=len(PARETO_HORIZONS))
     fig.update_layout(
-        title=title,
-        height=FIGURE_HEIGHT,
-        margin={"t": 85, "b": 65, "l": 80, "r": 120},
+        height=FIGURE_HEIGHT * len(PARETO_HORIZONS) + 60,
+        margin={"t": 50, "b": 60, "l": 60, "r": 40},
     )
     return fig
 
 
-def pareto_difference_figure(
-    records,
-    metric,
-    baseline,
-    title,
-    metric_label,
-    x_field="time",
-    x_title="Fit + predict time (s, log scale)<br>(sum over all folds)",
-):
-    baseline_record = next((r for r in records if r["name"] == baseline), None)
-    if baseline_record is None or baseline_record[f"{metric}_rows"] is None:
-        return None
-    data = []
-    for r in records:
-        if r[x_field] is None or r[f"{metric}_rows"] is None:
-            continue
-        data.append(
-            {
-                "name": r["name"],
-                x_field: r[x_field],
-                "baseline": r["name"] == baseline,
-                **paired_difference(
-                    r[f"{metric}_rows"], baseline_record[f"{metric}_rows"], DAY, FOLD
+def pareto_difference_grid_figure(records, x_field, x_title, metrics):
+    """Paired differences vs time, one column per metric, one row per horizon.
+
+    ``metrics`` is a list of ``(metric, short_name, metric_label, baseline)``.
+    """
+    fig = make_subplots(
+        rows=len(PARETO_HORIZONS),
+        cols=len(metrics),
+        subplot_titles=[
+            f"Δ {short} {label}"
+            for label in PARETO_HORIZON_LABELS
+            for _, short, _, _ in metrics
+        ],
+        vertical_spacing=0.11,
+        horizontal_spacing=0.10,
+    )
+    has_data = False
+    for row, (key, _) in enumerate(PARETO_HORIZONS, 1):
+        for col, (metric, _, metric_label, baseline) in enumerate(metrics, 1):
+            baseline_record = next((r for r in records if r["name"] == baseline), None)
+            if baseline_record is None:
+                continue
+            baseline_rows = pareto_rows(baseline_record, metric, key)
+            if baseline_rows is None:
+                continue
+            data = []
+            for r in records:
+                rows = pareto_rows(r, metric, key)
+                if r[x_field] is None or rows is None:
+                    continue
+                data.append(
+                    {
+                        "name": r["name"],
+                        x_field: r[x_field],
+                        "baseline": r["name"] == baseline,
+                        **paired_difference(rows, baseline_rows, DAY, FOLD),
+                    }
+                )
+            if not data:
+                continue
+            has_data = True
+            # one dot per fold, jittered horizontally (the time axis is logarithmic)
+            fig.add_trace(
+                go.Scatter(
+                    x=[
+                        r[x_field] * (1 + 0.015 * (f - 3.5))
+                        for r in data
+                        for f in range(len(r["folds"]))
+                    ],
+                    y=[v for r in data for v in r["folds"]],
+                    mode="markers",
+                    marker={"size": 3, "color": "#1f77b4", "opacity": 0.4},
+                    text=[
+                        f"{r['name']}, fold {f}"
+                        for r in data
+                        for f in range(len(r["folds"]))
+                    ],
+                    hovertemplate="%{text}: %{y:+.3g}<extra></extra>",
+                    showlegend=False,
                 ),
-            }
-        )
-    if not data:
-        return None
-    fig = go.Figure()
-    # one dot per fold, jittered horizontally (the time axis is logarithmic)
-    fig.add_trace(
-        go.Scatter(
-            x=[
-                r[x_field] * (1 + 0.015 * (f - 3.5))
-                for r in data
-                for f in range(len(r["folds"]))
-            ],
-            y=[v for r in data for v in r["folds"]],
-            mode="markers",
-            marker={"size": 4, "color": "#1f77b4", "opacity": 0.45},
-            text=[
-                f"{r['name']}, fold {f}" for r in data for f in range(len(r["folds"]))
-            ],
-            hovertemplate="%{text}: %{y:+.3g}<extra></extra>",
-            name="per-fold differences",
-        )
-    )
-    above, below = zip(*(error_bar(r) for r in data))
-    fig.add_trace(
-        go.Scatter(
-            x=[r[x_field] for r in data],
-            y=[r["mean"] for r in data],
-            mode="markers+text",
-            text=[
-                f"{short_label(r['name'])} (baseline)"
-                if r["baseline"]
-                else short_label(r["name"])
-                for r in data
-            ],
-            textposition=alternating_text_positions(data, x_field, "mean"),
-            textfont={"size": 12},
-            cliponaxis=False,
-            marker={
-                "size": [11 if r["baseline"] else 10 for r in data],
-                "color": ["#777777" if r["baseline"] else "#1f77b4" for r in data],
-                "symbol": ["diamond" if r["baseline"] else "circle" for r in data],
-                "line": {"color": "#333333", "width": 1},
-            },
-            customdata=[
-                [r["name"], r["low"], r["high"], r["n_lower"], len(r["folds"])]
-                for r in data
-            ],
-            error_y={
-                "type": "data",
-                "symmetric": False,
-                "array": above,
-                "arrayminus": below,
-                "color": "#333333",
-                "thickness": 1.5,
-                "width": 4,
-            },
-            hovertemplate=(
-                "%{customdata[0]}<br>cost: %{x:,.0f} s<br>"
-                + metric_label
-                + " difference: %{y:+.3g}<br>"
-                "95% block bootstrap: [%{customdata[1]:+.3g}, %{customdata[2]:+.3g}]<br>"
-                "lower than baseline in %{customdata[3]}/%{customdata[4]} folds"
-                "<extra></extra>"
-            ),
-            name="models (pooled mean)",
-        )
-    )
-    frontier = pareto_frontier(data, "mean", x_field)
-    if len(frontier) > 1:
-        fig.add_trace(
-            go.Scatter(
-                x=[r[x_field] for r in frontier],
-                y=[r["mean"] for r in frontier],
-                mode="lines+markers",
-                line={"color": "#d62728", "dash": "dash"},
-                marker={"size": 7, "color": "#d62728"},
-                name="Pareto frontier",
-                hoverinfo="skip",
+                row=row,
+                col=col,
             )
-        )
-    fig.update_xaxes(type="log", title_text=x_title)
-    fig.update_yaxes(
-        title_text=f"Δ {metric_label} vs {short_label(baseline)} (lower is better)"
-    )
+            above, below = zip(*(error_bar(r) for r in data))
+            fig.add_trace(
+                go.Scatter(
+                    x=[r[x_field] for r in data],
+                    y=[r["mean"] for r in data],
+                    mode="markers+text",
+                    text=[
+                        f"{short_label(r['name'])} (base)"
+                        if r["baseline"]
+                        else short_label(r["name"])
+                        for r in data
+                    ],
+                    textposition=alternating_text_positions(data, x_field, "mean"),
+                    textfont={"size": 9},
+                    cliponaxis=False,
+                    marker={
+                        "size": [9 if r["baseline"] else 7 for r in data],
+                        "color": ["#777777" if r["baseline"] else "#1f77b4" for r in data],
+                        "symbol": ["diamond" if r["baseline"] else "circle" for r in data],
+                        "line": {"color": "#333333", "width": 1},
+                    },
+                    customdata=[
+                        [r["name"], r["low"], r["high"], r["n_lower"], len(r["folds"])]
+                        for r in data
+                    ],
+                    error_y={
+                        "type": "data",
+                        "symmetric": False,
+                        "array": above,
+                        "arrayminus": below,
+                        "color": "#333333",
+                        "thickness": 1,
+                        "width": 3,
+                    },
+                    hovertemplate=(
+                        "%{customdata[0]}<br>cost: %{x:,.0f} s<br>"
+                        + metric_label
+                        + " difference: %{y:+.3g}<br>"
+                        "95% block bootstrap: [%{customdata[1]:+.3g}, %{customdata[2]:+.3g}]<br>"
+                        "lower than baseline in %{customdata[3]}/%{customdata[4]} folds"
+                        "<extra></extra>"
+                    ),
+                    showlegend=False,
+                ),
+                row=row,
+                col=col,
+            )
+            frontier = pareto_frontier(data, "mean", x_field)
+            if len(frontier) > 1:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[r[x_field] for r in frontier],
+                        y=[r["mean"] for r in frontier],
+                        mode="lines+markers",
+                        line={"color": "#d62728", "dash": "dash"},
+                        marker={"size": 5, "color": "#d62728"},
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ),
+                    row=row,
+                    col=col,
+                )
+    if not has_data:
+        return None
+    fig.update_xaxes(type="log")
+    fig.update_xaxes(title_text=x_title, row=len(PARETO_HORIZONS))
     fig.update_layout(
-        title=title,
-        height=FIGURE_HEIGHT,
-        margin={"t": 85, "b": 65, "l": 80, "r": 120},
+        height=FIGURE_HEIGHT * len(PARETO_HORIZONS) + 60,
+        margin={"t": 50, "b": 60, "l": 60, "r": 40},
     )
     return fig
 
@@ -817,93 +904,67 @@ def write_pareto_page(path, records):
     mape_baseline = baseline_name("mae__{h}h")
     pinball_baseline = baseline_name("d2_pinball_score__{h}h__q_0.5")
 
-    def difference_figures_for(x_field, x_title, suffix):
-        return [
-            pareto_difference_figure(
-                records,
-                "mape",
-                mape_baseline,
-                f"MAPE difference vs {suffix}",
-                "MAPE (%)",
-                x_field=x_field,
-                x_title=x_title,
-            ),
-            pareto_difference_figure(
-                records,
-                "pinball",
-                pinball_baseline,
-                f"Pinball loss difference vs {suffix}",
-                "pinball loss (MW)",
-                x_field=x_field,
-                x_title=x_title,
-            ),
-        ]
+    absolute_metrics = [
+        ("mape", "MAPE", "MAPE: %{y:.3f}%"),
+        ("pinball", "pinball", "pinball loss: %{y:.2f} MW"),
+    ]
+    difference_metrics = [
+        ("mape", "MAPE", "MAPE (%)", mape_baseline),
+        ("pinball", "pinball", "pinball loss (MW)", pinball_baseline),
+    ]
+    fit_x_title = "Fit + predict time (s, log scale)<br>(sum over all folds)"
+    predict_x_title = "Predict time only (s, log scale)<br>(sum over all folds)"
 
-    difference_figures = difference_figures_for(
-        "time",
-        "Fit + predict time (s, log scale)<br>(sum over all folds)",
-        "fit + predict time",
-    )
-    difference_figures = [fig for fig in difference_figures if fig is not None]
-    predict_difference_figures = difference_figures_for(
-        "score_time",
-        "Predict time only (s, log scale)<br>(sum over all folds)",
-        "predict time only",
-    )
-    predict_difference_figures = [
-        fig for fig in predict_difference_figures if fig is not None
+    sections = [
+        (
+            "Paired differences vs baseline (fit + predict time)",
+            f"MAPE is relative to <code>{escape(short_label(mape_baseline))}</code>; "
+            f"pinball loss is relative to <code>{escape(short_label(pinball_baseline))}</code>. "
+            f"The baseline is shown at zero difference. {INTERVAL_NOTE} Dashed red "
+            "lines mark the Pareto frontiers. One column per metric (MAPE | pinball), "
+            "one row per horizon (avg | 1h | 12h | 24h).",
+            pareto_difference_grid_figure(records, "time", fit_x_title, difference_metrics),
+        ),
+        (
+            "Paired differences vs baseline (predict time only)",
+            "Same paired differences, with the horizontal axis showing predict/score "
+            "time only. Models whose scores CSV has no timing split are omitted. "
+            f"{INTERVAL_NOTE} Dashed red lines mark the Pareto frontiers.",
+            pareto_difference_grid_figure(
+                records, "score_time", predict_x_title, difference_metrics
+            ),
+        ),
+        (
+            "Absolute accuracy vs fit + predict time",
+            "Means across the 8 CV folds, shown without error bars. One column per "
+            "metric (MAPE | pinball), one row per horizon (avg | 1h | 12h | 24h). "
+            "Dashed red lines mark the Pareto frontiers.",
+            pareto_grid_figure(records, "time", fit_x_title, absolute_metrics),
+        ),
+        (
+            "Absolute accuracy vs predict time only",
+            "Same metrics, using predict/score time only. Models whose scores CSV "
+            "has no timing split are omitted. Dashed red lines mark the Pareto frontiers.",
+            pareto_grid_figure(records, "score_time", predict_x_title, absolute_metrics),
+        ),
     ]
 
-    def absolute_figures(x_field, x_title, suffix):
-        return [
-            pareto_figure(
-                records,
-                "mape",
-                f"Average MAPE vs {suffix}",
-                "Average MAPE (%, lower is better)",
-                "MAPE: %{y:.3f}%",
-                x_field=x_field,
-                x_title=x_title,
-            ),
-            pareto_figure(
-                records,
-                "pinball",
-                f"Average pinball loss vs {suffix}",
-                "Average pinball loss (MW, lower is better)",
-                "pinball loss: %{y:.2f} MW",
-                x_field=x_field,
-                x_title=x_title,
-            ),
-        ]
-
-    total_figures = absolute_figures(
-        "time",
-        "Fit + predict time (s, log scale)<br>(sum over all folds)",
-        "fit + predict time",
-    )
-    predict_figures = absolute_figures(
-        "score_time",
-        "Predict time only (s, log scale)<br>(sum over all folds)",
-        "predict time only",
-    )
-    has_difference = bool(difference_figures)
-    has_predict_difference = bool(predict_difference_figures)
-    difference_parts = "".join(
-        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=i == 0, config={"responsive": True, "displaylogo": False})}</div>'
-        for i, fig in enumerate(difference_figures)
-    )
-    predict_difference_parts = "".join(
-        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=not has_difference and i == 0, config={"responsive": True, "displaylogo": False})}</div>'
-        for i, fig in enumerate(predict_difference_figures)
-    )
-    total_parts = "".join(
-        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=not has_difference and not has_predict_difference and i == 0, config={"responsive": True, "displaylogo": False})}</div>'
-        for i, fig in enumerate(total_figures)
-    )
-    predict_parts = "".join(
-        f'<div class="chart">{fig.to_html(full_html=False, include_plotlyjs=False, config={"responsive": True, "displaylogo": False})}</div>'
-        for fig in predict_figures
-    )
+    figure_parts = []
+    first = True
+    for heading, note, fig in sections:
+        if fig is None:
+            continue
+        html = fig.to_html(
+            full_html=False,
+            include_plotlyjs=first,
+            config={"responsive": True, "displaylogo": False},
+        )
+        first = False
+        figure_parts.append(
+            f'<h2>{heading}</h2>\n<p class="note">{note}</p>\n'
+            f'<div class="chart">{html}</div>'
+        )
+    figures_html = "\n".join(figure_parts)
 
     def fmt_time(value):
         return "-" if value is None else f"{value:,.0f}"
@@ -949,39 +1010,22 @@ th:first-child, td:first-child {{ text-align: left; }}
 </head>
 <body>
 <h1>Pareto plots: accuracy vs total and predict time</h1>
-<p class="note">Times are summed over the 8 CV folds. The first absolute plots
-use fit + predict (total run cost); the second set uses predict/score only (the
+<p class="note">Times are summed over the 8 CV folds. The first set of plots uses
+fit + predict (total run cost); the second uses predict/score only (the
 deployment/inference view). They come from per-fold timings in the scores CSV
 when available, otherwise from the run log. Hardware and parallel load differ
 across runs (CPU vs GPU), so times are indicative rather than a controlled
 benchmark. The horizontal axis is log-scaled. MAPE uses the median prediction.
-Pinball loss is averaged over the 5%, 50% and 95% quantiles and all horizons;
-models without quantiles are omitted from the pinball figure. Lower is better on
-both axes. Table values are means across the 8 folds.</p>
+Pinball loss is averaged over the 5%, 50% and 95% quantiles; models without
+quantiles are omitted from the pinball columns. Each section is a grid with one
+column per metric (MAPE | pinball loss) and one row per horizon
+(avg | 1h | 12h | 24h). Lower is better on both axes. Table values are means
+across the 8 folds.</p>
 <table>
 <thead><tr><th>model</th><th>fit (s)</th><th>predict (s)</th><th>total (s)</th><th>MAPE (%)</th><th>pinball loss (MW)</th></tr></thead>
 <tbody>{table_rows}</tbody>
 </table>
-<h2>Paired differences vs baseline (fit + predict time)</h2>
-<p class="note">MAPE is relative to <code>{escape(str(short_label(mape_baseline)))}</code>;
-pinball loss is relative to <code>{escape(str(short_label(pinball_baseline)))}</code>.
-The baseline is shown at zero difference. {INTERVAL_NOTE} Dashed colored lines
-mark the Pareto frontiers.</p>
-{difference_parts}
-<h2>Paired differences vs baseline (predict time only)</h2>
-<p class="note">Same paired differences, with the horizontal axis showing
-predict/score time only. Models whose scores CSV has no timing split are
-omitted. {INTERVAL_NOTE} Dashed colored lines mark the Pareto frontiers.</p>
-{predict_difference_parts}
-<h2>Absolute accuracy vs fit + predict time</h2>
-<p class="note">Means across the 8 CV folds, shown without error bars. Dashed
-colored lines mark the Pareto frontiers.</p>
-{total_parts}
-<h2>Absolute accuracy vs predict time only</h2>
-<p class="note">Same metrics, using predict/score time only. Models whose scores
-CSV has no timing split are omitted. Dashed colored lines mark the Pareto
-frontiers.</p>
-{predict_parts}
+{figures_html}
 </body>
 </html>
 """
