@@ -55,9 +55,9 @@ def losses(df, kind):
 
 
 def pinball(df):
-    """Mean pinball loss over the 5/50/95% levels, per horizon and averaged."""
+    """Mean pinball loss over the 5% and 95% levels, per horizon and averaged."""
     per_h = {
-        h: np.mean([row_loss(df, "pinball", h, q) for q in (0.05, 0.5, 0.95)], axis=0)
+        h: np.mean([row_loss(df, "pinball", h, q) for q in (0.05, 0.95)], axis=0)
         for h in HORIZONS
     }
     return per_h | {"avg": np.mean(list(per_h.values()), axis=0)}
@@ -252,7 +252,7 @@ against its 24h / 168h means.</li>
 <p class="note">Cells: default &rarr; new (difference); <code>*</code> = the 95% moving-block
 bootstrap interval of the paired difference (14-day blocks over daily differences of the pooled
 test rows) excludes 0. It covers test-period variability only, not training randomness.
-Pinball is the mean over the 5%, 50% and 95% levels.</p>
+Pinball is the mean over the 5% and 95% levels.</p>
 <h2>MAE (MW)</h2>
 {table("mae", "MW", 1)}
 {div(differences_figure(), first=True)}

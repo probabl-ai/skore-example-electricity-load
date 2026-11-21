@@ -18,7 +18,7 @@ from compare_predictions import compute_scores
 from plotly.subplots import make_subplots
 from uncertainty import (
     INTERVAL_NOTE,
-    PINBALL_LEVELS,
+    PINBALL_AVG_LEVELS,
     error_bar,
     paired_difference,
     row_index,
@@ -167,10 +167,10 @@ def temperature_figure(days=28, default_city="paris"):
 
 
 def weather_row_loss(df, metric, h):
-    """Per-row MAPE (%) or pinball loss (MW, mean over 5/50/95%) at horizon h."""
+    """Per-row MAPE (%) or pinball loss (MW, mean over 5/95%) at horizon h."""
     if metric == "mape":
         return row_loss(df, "mape", h)
-    losses = [row_loss(df, "pinball", h, q) for q in PINBALL_LEVELS]
+    losses = [row_loss(df, "pinball", h, q) for q in PINBALL_AVG_LEVELS]
     return None if any(loss is None for loss in losses) else np.mean(losses, axis=0)
 
 
@@ -492,7 +492,7 @@ but excluded from the weather-impact charts. Its near-zero delta is expected.</p
 <p class="note">Each panel is one horizon. Markers show the mean paired difference
 (oracle − forecast); negative means the oracle-weather error is lower.
 {INTERVAL_NOTE} MAPE uses the median prediction; pinball
-loss is averaged over the 5%, 50% and 95% quantiles for that horizon.
+loss is averaged over the 5% and 95% quantiles for that horizon.
 KumoForecast is excluded from these panels (see the note above).</p>
 {win_html}
 

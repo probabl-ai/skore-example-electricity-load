@@ -188,6 +188,24 @@ def fig_by_level(models, horizons, n_bins, method="bins", levels=None):
         row=1,
         col=1,
     )
+    # Legend-only traces, one per model, kept visible in every dropdown entry so
+    # the legend does not disappear when a horizon other than the first is shown.
+    legend_indices = []
+    for i, (name, _, color) in enumerate(models):
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers" if method == "bins" else "lines",
+                marker=dict(color=color, size=7) if method == "bins" else None,
+                line=dict(color=color, width=2, shape="hv") if method != "bins" else None,
+                name=name,
+                legendgroup=name,
+            ),
+            row=1,
+            col=1,
+        )
+        legend_indices.append(len(fig.data) - 1)
     curves = {}
     for h in horizons:
         for q in quantiles:
@@ -217,9 +235,8 @@ def fig_by_level(models, horizons, n_bins, method="bins", levels=None):
                         y=ys,
                         mode="markers",
                         marker=dict(color=color, size=7),
-                        name=name,
                         legendgroup=name,
-                        showlegend=k == 0 and i == 0,
+                        showlegend=False,
                         visible=k == 0,
                     )
                 else:
@@ -228,9 +245,8 @@ def fig_by_level(models, horizons, n_bins, method="bins", levels=None):
                         y=ys,
                         mode="lines",
                         line=dict(color=color, width=2, shape="hv"),
-                        name=name,
                         legendgroup=name,
-                        showlegend=k == 0 and i == 0,
+                        showlegend=False,
                         visible=k == 0,
                     )
                 fig.add_trace(trace, row=row, col=col)
@@ -276,6 +292,9 @@ def fig_by_level(models, horizons, n_bins, method="bins", levels=None):
     buttons = []
     for k, h in enumerate(horizons):
         visible = [False] * len(fig.data)
+        visible[0] = True  # the "perfect calibration" legend entry
+        for i in legend_indices:  # model legend entries stay shown on every horizon
+            visible[i] = True
         for i in traces_per_horizon[k]:
             visible[i] = True
         buttons.append(

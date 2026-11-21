@@ -19,10 +19,10 @@ import polars as pl
 from plotly.subplots import make_subplots
 from sklearn.metrics import d2_pinball_score
 
-from electricity_load_forecasting.metrics import PINBALL_LEVELS
+from electricity_load_forecasting.metrics import PINBALL_AVG_LEVELS
 
 HORIZONS = (1, 12, 24)
-QUANTILES = PINBALL_LEVELS
+QUANTILES = PINBALL_AVG_LEVELS
 MODEL_ORDER = (
     "chronos2_ctx4000",
     "hgb_mean",
@@ -117,7 +117,7 @@ def write_plots(pooled, slopes, output_dir, bin_days):
             pooled,
             "pinball_d2",
             "Pinball-d2 by time since retraining",
-            "pinball-d2 (mean over q0.05/0.5/0.95)",
+            "pinball-d2 (mean over q0.05/0.95)",
             bin_days,
         ),
         metric_figure(

@@ -18,7 +18,7 @@ blocks, 8 seasons), so a t-interval across folds is not used.
 import numpy as np
 from compare_predictions import horizons_of, quantile_levels_of
 
-from electricity_load_forecasting.metrics import PINBALL_LEVELS
+from electricity_load_forecasting.metrics import PINBALL_AVG_LEVELS
 
 BLOCK_DAYS = 14
 
@@ -58,12 +58,12 @@ def row_loss(df, kind, h, q=None):
 
 def average_row_loss(df, kind):
     """Per-row loss averaged over horizons (and, for pinball, over the
-    5/50/95% quantiles; None without them)."""
+    5% and 95% quantiles; None without them)."""
     hs = horizons_of(df)
     if kind == "mape":
         return np.mean([row_loss(df, "mape", h) for h in hs], axis=0)
     levels = quantile_levels_of(df, hs[0])
-    chosen = [q for q in levels if any(abs(q - t) < 1e-9 for t in PINBALL_LEVELS)]
+    chosen = [q for q in levels if any(abs(q - t) < 1e-9 for t in PINBALL_AVG_LEVELS)]
     if not chosen:
         return None
     return np.mean([row_loss(df, "pinball", h, q) for h in hs for q in chosen], axis=0)

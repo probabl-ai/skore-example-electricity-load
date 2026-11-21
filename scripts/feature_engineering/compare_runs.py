@@ -4,7 +4,8 @@ models (default features).
 
     python scripts/feature_engineering/compare_runs.py NEW.parquet=OLD.parquet ...
 
-Prints MAE, MAPE and 7-level pinball (if available) differences NEW - OLD
+Prints MAE, MAPE and pinball (mean over the 5% and 95% levels, if available)
+differences NEW - OLD
 (negative is better) with the 95% moving-block bootstrap interval of
 `uncertainty.py`, averaged over horizons and per horizon; `*` if it excludes 0.
 """
@@ -55,7 +56,7 @@ for arg in sys.argv[1:]:
             cols = [(a, b)] + [
                 tuple(
                     np.mean(
-                        [row_loss(d, "pinball", h, q) for q in (0.05, 0.5, 0.95)],
+                        [row_loss(d, "pinball", h, q) for q in (0.05, 0.95)],
                         axis=0,
                     )
                     for d in (new, old)

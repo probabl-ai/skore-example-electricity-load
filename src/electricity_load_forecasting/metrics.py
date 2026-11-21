@@ -1,9 +1,14 @@
 from sklearn.metrics import d2_pinball_score, mean_absolute_percentage_error
 
-# Canonical quantile levels used for cross-model pinball averages and interval
-# coverage/width. Models may predict extra levels (e.g. a 7-quantile HGB run),
-# but scores compared across models must use this common subset.
+# Canonical quantile levels used for coverage/width and the per-level pinball-d2
+# tables. Models may predict extra levels (e.g. a 7-quantile HGB run), but these
+# are the levels compared across models.
 PINBALL_LEVELS = (0.05, 0.5, 0.95)
+
+# Levels over which the pinball-loss average of the summaries is computed.
+# The median (0.5) is deliberately excluded: its quality is already captured by
+# MAE/MAPE, which use the median prediction.
+PINBALL_AVG_LEVELS = (0.05, 0.95)
 
 
 def split_by_quantile(pred):

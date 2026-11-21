@@ -59,7 +59,7 @@ from uncertainty import (
 )
 
 from electricity_load_forecasting import data_dir
-from electricity_load_forecasting.metrics import PINBALL_LEVELS
+from electricity_load_forecasting.metrics import PINBALL_AVG_LEVELS, PINBALL_LEVELS
 
 OPERATOR_HORIZON = 24
 OPERATOR_NAME = "operator_day_ahead"
@@ -248,11 +248,13 @@ def time_breakdown(path):
 
 
 def average_pinball_loss(df, horizon=None):
-    """Mean pinball loss (MW) over 5/50/95% quantiles, one horizon or all."""
+    """Mean pinball loss (MW) over the 5% and 95% quantiles, one horizon or all."""
     hs = [horizon] if horizon is not None else horizons_of(df)
     levels = quantile_levels_of(df, hs[0])
     chosen = [
-        q for q in levels if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
+        q
+        for q in levels
+        if any(abs(q - target) < 1e-9 for target in PINBALL_AVG_LEVELS)
     ]
     if not chosen:
         return None
@@ -267,10 +269,12 @@ def average_pinball_loss(df, horizon=None):
 
 
 def pinball_row_loss(df, horizon):
-    """Per-row pinball loss (MW) at one horizon, over the 5/50/95% quantiles."""
+    """Per-row pinball loss (MW) at one horizon, over the 5% and 95% quantiles."""
     levels = quantile_levels_of(df, horizon)
     chosen = [
-        q for q in levels if any(abs(q - target) < 1e-9 for target in PINBALL_LEVELS)
+        q
+        for q in levels
+        if any(abs(q - target) < 1e-9 for target in PINBALL_AVG_LEVELS)
     ]
     if not chosen:
         return None
@@ -637,7 +641,9 @@ for path in paths:
             average_pinball_loss(df.filter(pl.col("split") == split), horizon=h)
             for split in splits
         ]
-        pinball_h[h] = None if any(v is None for v in values) else float(np.mean(values))
+        pinball_h[h] = (
+            None if any(v is None for v in values) else float(np.mean(values))
+        )
     records = {
         "name": name,
         "fit_time": fit_time,
@@ -678,7 +684,9 @@ def pareto_frontier(records, value_key, x_field="time"):
 def alternating_text_positions(data, x_field, value_key):
     """Alternate labels above/below points, ordered by cost then value."""
     positions = ["top center"] * len(data)
-    order = sorted(range(len(data)), key=lambda i: (data[i][x_field], data[i][value_key]))
+    order = sorted(
+        range(len(data)), key=lambda i: (data[i][x_field], data[i][value_key])
+    )
     for rank, i in enumerate(order):
         positions[i] = "top center" if rank % 2 == 0 else "bottom center"
     return positions
@@ -842,8 +850,12 @@ def pareto_difference_grid_figure(records, x_field, x_title, metrics):
                     cliponaxis=False,
                     marker={
                         "size": [9 if r["baseline"] else 7 for r in data],
-                        "color": ["#777777" if r["baseline"] else "#1f77b4" for r in data],
-                        "symbol": ["diamond" if r["baseline"] else "circle" for r in data],
+                        "color": [
+                            "#777777" if r["baseline"] else "#1f77b4" for r in data
+                        ],
+                        "symbol": [
+                            "diamond" if r["baseline"] else "circle" for r in data
+                        ],
                         "line": {"color": "#333333", "width": 1},
                     },
                     customdata=[
@@ -921,7 +933,9 @@ def write_pareto_page(path, records):
             f"The baseline is shown at zero difference. {INTERVAL_NOTE} Dashed red "
             "lines mark the Pareto frontiers. One column per metric (MAPE | pinball), "
             "one row per horizon (avg | 1h | 12h | 24h).",
-            pareto_difference_grid_figure(records, "time", fit_x_title, difference_metrics),
+            pareto_difference_grid_figure(
+                records, "time", fit_x_title, difference_metrics
+            ),
         ),
         (
             "Paired differences vs baseline (predict time only)",
@@ -943,7 +957,9 @@ def write_pareto_page(path, records):
             "Absolute accuracy vs predict time only",
             "Same metrics, using predict/score time only. Models whose scores CSV "
             "has no timing split are omitted. Dashed red lines mark the Pareto frontiers.",
-            pareto_grid_figure(records, "score_time", predict_x_title, absolute_metrics),
+            pareto_grid_figure(
+                records, "score_time", predict_x_title, absolute_metrics
+            ),
         ),
     ]
 
@@ -1014,7 +1030,8 @@ deployment/inference view). They come from per-fold timings in the scores CSV
 when available, otherwise from the run log. Hardware and parallel load differ
 across runs (CPU vs GPU), so times are indicative rather than a controlled
 benchmark. The horizontal axis is log-scaled. MAPE uses the median prediction.
-Pinball loss is averaged over the 5%, 50% and 95% quantiles; models without
+Pinball loss is averaged over the 5% and 95% quantiles (the tails; the 50% level is
+captured by MAPE); models without
 quantiles are omitted from the pinball columns. Each section is a grid with one
 column per metric (MAPE | pinball loss) and one row per horizon
 (avg | 1h | 12h | 24h). Lower is better on both axes. Table values are means
@@ -1031,7 +1048,7 @@ across the 8 folds.</p>
 
 
 def keep_metric(metric):
-    """Only show the 5/50/95% pinball scores and the 90% interval coverage."""
+    """Only show the pinball scores at the 5/50/95% levels and the 90% interval."""
     if "__q_" in metric:
         return float(metric.rsplit("__q_", 1)[1]) in PINBALL_LEVELS
     if metric.startswith(("coverage_", "width_")):
@@ -1304,7 +1321,7 @@ Generated by `scripts/model_comparison/build_cv_report.py` in
 - models: {", ".join(sorted(r["name"] for r in pareto_records))}
 - summary labels: {args.summary_labels}
 - figure height: {args.figure_height}px; page width: {args.page_width}px
-- metrics: MAPE and pinball (mean over q0.05/q0.5/q0.95 and horizons) vs
+- metrics: MAPE and pinball (mean over q0.05/q0.95 and horizons) vs
   fit+predict and predict-only time; paired differences vs the HGB baseline
 - no model was re-run; derived from `*_cv_predictions.parquet`
 """
@@ -1420,6 +1437,29 @@ zooming one chart zooms the others, and models can be hidden.</p>
 every panel (losses and width). A model whose interval excludes zero and whose
 dots are all on one side is consistently different from the baseline; dots on
 both sides of zero mean the sign depends on the period.</p>
+<details>
+<summary>How the uncertainty intervals are computed</summary>
+<ol>
+<li><b>Per-row difference.</b> For every CV test row, compute the row-level loss
+for the model and its baseline (MAPE difference in percentage points; pinball or
+interval width in MW), then <code>diff = model &minus; baseline</code>.</li>
+<li><b>Pooled estimate.</b> The large marker is <code>mean(diff)</code> over all
+test rows.</li>
+<li><b>95% interval (moving-block bootstrap).</b> Collapse <code>diff</code> to
+daily means, then resample 2000 times by drawing contiguous 14-day blocks of
+daily means and take the mean of each resample. The 2.5th and 97.5th percentiles
+of those 2000 means form the interval, shifted to be centred on the pooled row
+mean. The 14-day blocks preserve autocorrelation in the load errors (they are
+correlated over consecutive hours and days), so the interval is not artificially
+narrow the way an IID resample of rows would be.</li>
+<li><b>Per-fold dots.</b> The small dots are the mean difference within each of
+the 8 CV folds.</li>
+</ol>
+<p>The interval is conditional on the fitted models (it ignores training
+randomness) and only covers the test range. The folds are not independent
+(nested training sets, adjacent test blocks), so no t-interval across folds is
+shown.</p>
+</details>
 {differences_html}
 <h1>Coverage vs interval width</h1>
 <p class="note">Each point is one model/horizon, using the mean coverage and
