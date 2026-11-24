@@ -21,6 +21,14 @@ convention as the baseline, whose smallest lag for horizon h is h). Weather and
 calendar covariates are used over the forecast horizon, as the baseline does
 with its weather "forecasts"; no load value after `prediction_time` is ever
 given to a forecaster.
+
+Weather lead: the baseline uses, for the target `prediction_time + h`, the
+24h-lead forecast if `h <= elf.DAY1_MAX_HORIZON` and the 48h-lead forecast
+otherwise. A single forecaster call covers all steps, so the covariates over
+the window are stitched with the same rule per step: past covariates and the
+first `DAY1_MAX_HORIZON` future steps come from the 24h-lead table
+(`covariates`), the later future steps from the 48h-lead table
+(`covariates_long`).
 """
 
 import datetime
@@ -48,6 +56,7 @@ def build_covariates(
     cities="all",
     temperature_only=True,
     calendar=True,
+    horizon=None,
 ):
     """
     Build the covariates table used by `ChronosHistoryRegressor`.
@@ -60,7 +69,9 @@ def build_covariates(
     `elf.add_calendar_and_holidays`; `cal_year` is dropped as a trend
     covariate is meaningless for a zero-shot model.
 
-    `cities` is "all" or a sequence of city names (possibly empty).
+    `cities` is "all" or a sequence of city names (possibly empty). `horizon`
+    is passed to `city_weather_fetcher` to select the forecast lead (see
+    `elf.fetch_city_weather_forecast`).
     """
     grid = load_mw_history.select("time")
     if isinstance(cities, str):
@@ -68,7 +79,7 @@ def build_covariates(
         cities = elf._ALL_CITIES
     covariates = grid
     for city in cities:
-        weather = city_weather_fetcher(city).with_columns(
+        weather = city_weather_fetcher(city, horizon=horizon).with_columns(
             pl.col("time").dt.cast_time_unit("us")
         )
         if temperature_only:
@@ -140,6 +151,9 @@ class ChronosHistoryRegressor(RegressorMixin, BaseEstimator):
     chunk_size : int
         Number of rows for which windows are materialized and forecast per
         forecaster call.
+    short_lead_steps : int
+        Number of future steps taken from `covariates` (short-lead weather
+        forecasts); the later ones are taken from `covariates_long`.
     verbose : bool
         Show a progress bar over chunks.
     """
@@ -151,6 +165,7 @@ class ChronosHistoryRegressor(RegressorMixin, BaseEstimator):
         quantiles=None,
         context_hours=1024,
         chunk_size=512,
+        short_lead_steps=elf.DAY1_MAX_HORIZON,
         verbose=False,
     ):
         self.forecaster = forecaster
@@ -158,6 +173,7 @@ class ChronosHistoryRegressor(RegressorMixin, BaseEstimator):
         self.quantiles = quantiles
         self.context_hours = context_hours
         self.chunk_size = chunk_size
+        self.short_lead_steps = short_lead_steps
         self.verbose = verbose
 
     def fit(self, X, y=None):
@@ -176,17 +192,22 @@ class ChronosHistoryRegressor(RegressorMixin, BaseEstimator):
             lo = max(0, i - self.context_hours + 1)
             item = {"target": load[lo : i + 1]}
             if covariates is not None:
-                values, names = covariates
+                values, long_values, names = covariates
+                future = values[i + 1 : i + 1 + prediction_length].copy()
+                if long_values is not None:
+                    short = self.short_lead_steps
+                    future[short:] = long_values[
+                        i + 1 + short : i + 1 + prediction_length
+                    ]
                 item["past_covariates"] = {
                     n: values[lo : i + 1, j] for j, n in enumerate(names)
                 }
                 item["future_covariates"] = {
-                    n: values[i + 1 : i + 1 + prediction_length, j]
-                    for j, n in enumerate(names)
+                    n: future[:, j] for j, n in enumerate(names)
                 }
             yield item
 
-    def predict(self, X, history, covariates=None):
+    def predict(self, X, history, covariates=None, covariates_long=None):
         """
         Parameters
         ----------
@@ -195,7 +216,12 @@ class ChronosHistoryRegressor(RegressorMixin, BaseEstimator):
             (output of `elf.resample`). May contain data after the prediction
             times; it is never used.
         covariates : dataframe or None
-            Output of `build_covariates` for the same `history`.
+            Output of `build_covariates` for the same `history`, with the
+            short-lead weather forecasts: used for the past and for the first
+            `short_lead_steps` future steps.
+        covariates_long : dataframe or None
+            Same columns, with the long-lead weather forecasts: used for the
+            later future steps. If None, `covariates` is used everywhere.
         """
         if self.forecaster is None:
             raise ValueError("forecaster must be provided")
@@ -214,10 +240,19 @@ class ChronosHistoryRegressor(RegressorMixin, BaseEstimator):
             if not covariates["time"].equals(grid_time):
                 raise ValueError("covariates must be aligned with history")
             names = [c for c in covariates.columns if c != "time"]
-            values = covariates.select(names).to_numpy().astype(np.float32)
             # NaN padding so that windows over the horizon never run past the end
             padding = np.full((n_steps, len(names)), np.nan, dtype=np.float32)
-            cov = (np.vstack([values, padding]), names)
+
+            def padded(table):
+                values = table.select(names).to_numpy().astype(np.float32)
+                return np.vstack([values, padding])
+
+            long_values = None
+            if covariates_long is not None:
+                if not covariates_long["time"].equals(grid_time):
+                    raise ValueError("covariates_long must be aligned with history")
+                long_values = padded(covariates_long)
+            cov = (padded(covariates), long_values, names)
 
         positions = _hourly_positions(X["prediction_time"], grid_time)
         chunks = [
@@ -367,6 +402,8 @@ def make_chronos_data_op(
     `quantiles=None` outputs the median, like the baseline's mean models.
 
     `cities=()` with `calendar=False` gives a target-only (univariate) model.
+
+    Weather lead: see the module docstring.
     """
     if forecaster is None:
         forecaster = Chronos2Forecaster()
@@ -394,21 +431,37 @@ def make_chronos_data_op(
     X = X_y["X"].skb.mark_as_X(cv=elf.TimeSeriesSplitter())
     y = X_y["y"].skb.mark_as_y()
 
-    covariates = None
+    covariates = covariates_long = None
     if len(cities) > 0 or calendar:
-        covariates = (
-            skrub.deferred(build_covariates)(
+
+        def covariates_for(horizon):
+            return skrub.deferred(build_covariates)(
                 load_mw_history,
                 city_weather_fetcher,
                 cities=cities,
                 temperature_only=temperature_only,
                 calendar=calendar,
+                horizon=horizon,
             )
+
+        covariates = (
+            covariates_for(1)
             .skb.set_name("covariates")
             .skb.set_description(
-                "Hourly weather and calendar covariates aligned with the history."
+                "Hourly weather (short-lead forecasts, used for the past and the "
+                "first DAY1_MAX_HORIZON steps) and calendar covariates aligned "
+                "with the history."
             )
         )
+        if len(cities) > 0:
+            covariates_long = (
+                covariates_for(elf.DAY1_MAX_HORIZON + 1)
+                .skb.set_name("covariates_long")
+                .skb.set_description(
+                    "Same as covariates, with long-lead weather forecasts, used "
+                    "for the later future steps."
+                )
+            )
 
     estimator = ChronosHistoryRegressor(
         forecaster=forecaster,
@@ -421,7 +474,11 @@ def make_chronos_data_op(
     all_pred = X.skb.apply(
         estimator,
         y=y,
-        predict_kwargs={"history": load_mw_history, "covariates": covariates},
+        predict_kwargs={
+            "history": load_mw_history,
+            "covariates": covariates,
+            "covariates_long": covariates_long,
+        },
     ).skb.set_name("pred_multi_horizon")
 
     multi_horizon_pred = all_pred.skb.apply_func(

@@ -50,8 +50,11 @@ Run from the repository root:
 
 Use `--reports` to also write the skrub fit/predict/single-date reports.
 Weather defaults to the safe-lead historical forecasts (`--weather forecast`):
-day1 for horizons <=18h and day2 above that. Use `--weather oracle` for the
-oracle weather files.
+day1 for horizons <=`elf.DAY1_MAX_HORIZON` (18h) and day2 above that. For
+`chronos2` and `t0_gamma`, one call forecasts all horizons, so each future step
+gets the lead the per-horizon models would use for that step (day1 for the past
+and steps <=18, day2 after). Use `--weather oracle` for the oracle weather
+files.
 
 `hgb_quantile` is `elf.make_data_op(model="hgb_quantile")`:
 one independent `HistGradientBoostingRegressor` per quantile (see
@@ -86,6 +89,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import time
@@ -401,6 +405,31 @@ metadata = {
     "splitter": vars(elf.splitter.TimeSeriesSplitter())
     | {"gap_days": elf.splitter._TRAIN_TEST_GAP_DAYS},
 }
+fetcher = env.get("city_weather_fetcher", elf.fetch_city_weather_forecast)
+
+
+def weather_file(horizon):
+    """Weather file (resolved from the fetcher's query plan) used for a horizon."""
+    plan = fetcher("paris", horizon=horizon).explain()
+    return re.search(r"weather\w*\.parquet", plan).group().replace("paris", "<city>")
+
+
+metadata["day1_max_horizon"] = elf.DAY1_MAX_HORIZON
+if args.model in ("chronos2", "t0_gamma"):
+    n_steps = max(HORIZONS)
+    metadata["forecaster"] = forecaster.get_params()
+    metadata["context_hours"] = args.context_hours
+    metadata["chunk_size"] = args.t0_chunk_size if args.model == "t0_gamma" else 512
+    metadata["weather"] = None if args.no_weather else "all cities, temperature only"
+    metadata["calendar"] = not args.no_calendar
+    # which weather file feeds each part of the forecaster's input window
+    # (steps are hours after the prediction time p, valid time = p + step)
+    metadata["covariate_weather_files"] = {
+        "past_and_future_steps_1_to_%d" % elf.DAY1_MAX_HORIZON: weather_file(1),
+        "future_steps_%d_to_%d" % (elf.DAY1_MAX_HORIZON + 1, n_steps): weather_file(
+            elf.DAY1_MAX_HORIZON + 1
+        ),
+    }
 if uses_lagged_features:
     metadata["feature_groups"] = args.feature_groups
     metadata["pipeline_defaults"] = {

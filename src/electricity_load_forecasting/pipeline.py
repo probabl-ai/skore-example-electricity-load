@@ -246,14 +246,21 @@ def fetch_city_weather(city, horizon=None):
     return pl.scan_parquet(data_dir() / f"weather_{city}.parquet")
 
 
+# Hypothetical availability rule shared by all models: a forecast valid at time
+# p + k and issued 24h earlier is assumed available at prediction time p only
+# if k <= DAY1_MAX_HORIZON (a 6h latency margin for the weather model run).
+# Beyond that, the 48h-lead forecast is used.
+DAY1_MAX_HORIZON = 18
+
+
 def fetch_city_weather_forecast(city, horizon=None):
     """Load historical temperature forecasts with a safe lead for the horizon.
 
-    For horizons up to 18h we use the 24h-lead forecast; above that (including
-    callers that do not specify a horizon) we use the 48h-lead forecast. This
-    leaves at least a 6h margin for GFS model latency.
+    For horizons up to `DAY1_MAX_HORIZON` we use the 24h-lead forecast; above
+    that (including callers that do not specify a horizon) we use the 48h-lead
+    forecast. This leaves at least a 6h margin for GFS model latency.
     """
-    lead = 1 if horizon is not None and horizon <= 18 else 2
+    lead = 1 if horizon is not None and horizon <= DAY1_MAX_HORIZON else 2
     return pl.scan_parquet(data_dir() / f"weather_forecast_day{lead}_{city}.parquet")
 
 

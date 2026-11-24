@@ -1,4 +1,5 @@
 from .pipeline import (
+    DAY1_MAX_HORIZON,
     FEATURE_GROUPS,
     concat_X_y_predictions,
     cross_val_predict,
@@ -15,6 +16,7 @@ from .pipeline import (
 from .splitter import train_test_split
 
 __all__ = [
+    "DAY1_MAX_HORIZON",
     "FEATURE_GROUPS",
     "concat_X_y_predictions",
     "cross_val_predict",

@@ -48,9 +48,25 @@ class RecordingForecaster(cf.SeasonalNaiveForecaster):
         return super().predict(inputs, prediction_length, quantile_levels)
 
 
+class CovariateSumForecaster(cf.SeasonalNaiveForecaster):
+    """Stub whose forecasts depend on every covariate value it is given."""
+
+    def predict(self, inputs, prediction_length, quantile_levels):
+        out = super().predict(inputs, prediction_length, quantile_levels)
+        for i, item in enumerate(inputs):
+            for key in ("past_covariates", "future_covariates"):
+                out[i] += sum(np.nansum(v) for v in item[key].values())
+        return out
+
+
 history = elf.resample(elf.fetch_load_mw_history())
-covariates = cf.build_covariates(history)
+# 24h-lead (short) and 48h-lead (long) weather forecasts, see chronos.py
+covariates = cf.build_covariates(history, horizon=1)
+covariates_long = cf.build_covariates(history, horizon=elf.DAY1_MAX_HORIZON + 1)
 cov_names = [c for c in covariates.columns if c != "time"]
+weather_names = [c for c in cov_names if c.startswith("weather_")]
+assert weather_names and not covariates.equals(covariates_long)
+SHORT = elf.DAY1_MAX_HORIZON
 
 
 # %%
@@ -70,7 +86,9 @@ def check_windows():
     X = pl.DataFrame({"prediction_time": times}).with_columns(
         pl.col("prediction_time").dt.cast_time_unit("us")
     )
-    est.predict(X, history=history, covariates=covariates)
+    est.predict(
+        X, history=history, covariates=covariates, covariates_long=covariates_long
+    )
     assert len(rec.calls) == 2, "chunk_size should split 4 rows in 2 calls"
     inputs = [item for call in rec.calls for item in call[0]]
     assert all(call[1] == max(HORIZONS) for call in rec.calls)
@@ -78,7 +96,15 @@ def check_windows():
         # independent computation, by filtering on timestamps
         past = history.filter(pl.col("time") <= t).tail(CONTEXT_HOURS)
         past_cov = covariates.filter(pl.col("time") <= t).tail(CONTEXT_HOURS)
-        future_cov = covariates.filter(pl.col("time") > t).head(max(HORIZONS))
+        # future steps 1..SHORT from the short-lead table, the rest from the long one
+        future_cov = pl.concat(
+            [
+                covariates.filter(pl.col("time") > t).head(SHORT),
+                covariates_long.filter(pl.col("time") > t)
+                .head(max(HORIZONS))
+                .tail(-SHORT),
+            ]
+        )
         np.testing.assert_array_equal(item["target"], past["load_mw"].to_numpy())
         assert set(item["past_covariates"]) == set(cov_names)
         assert set(item["future_covariates"]) == set(cov_names)
@@ -89,6 +115,11 @@ def check_windows():
             expected = np.full(max(HORIZONS), np.nan, dtype=np.float32)
             expected[: future_cov.height] = future_cov[name].to_numpy()
             np.testing.assert_array_equal(item["future_covariates"][name], expected)
+            if name in weather_names and future_cov.height == max(HORIZONS):
+                # the stitching matters: both tables differ over the future window
+                assert not np.array_equal(
+                    expected, covariates[name].filter(covariates["time"] > t).head(24)
+                )
         assert past["time"].max() == t, "context must end at the prediction time"
     print("OK windows")
 
@@ -162,6 +193,46 @@ def check_data_op():
         {"start": t, "end": None, "load_mw_history_fetcher": corrupted_fetcher}
     )
     assert corrupted.equals(single), "prediction depends on data after t"
+
+    # Same for weather. The stub below depends on every covariate value it is
+    # given. At t, the 24h-lead forecasts valid after t + SHORT are not
+    # available, and the 48h-lead ones valid at or before t + SHORT are not
+    # supposed to be used (the 24h-lead ones are). The prediction must not
+    # change if these values are replaced by garbage.
+    def corrupted_weather(city, horizon=None):
+        weather = elf.fetch_city_weather_forecast(city, horizon=horizon)
+        late = pl.col("time") > t + datetime.timedelta(hours=SHORT)
+        bad = late if horizon is not None and horizon <= SHORT else ~late
+        return weather.with_columns(
+            pl.when(bad)
+            .then(pl.lit(1e3, dtype=pl.Float32))
+            .otherwise(pl.col("temperature_2m"))
+            .alias("temperature_2m")
+        )
+
+    cov_learner = make_op(forecaster=CovariateSumForecaster()).skb.make_learner()
+    cov_learner.fit(env)
+    reference = cov_learner.predict({"start": t, "end": None})
+    corrupted = cov_learner.predict(
+        {"start": t, "end": None, "city_weather_fetcher": corrupted_weather}
+    )
+    assert corrupted.equals(reference), "prediction uses unavailable weather"
+    # sanity check that the test can fail: corrupting an available value changes it
+    available = cov_learner.predict(
+        {
+            "start": t,
+            "end": None,
+            "city_weather_fetcher": lambda city, horizon=None: (
+                elf.fetch_city_weather_forecast(city, horizon=horizon).with_columns(
+                    pl.when(pl.col("time") == t + datetime.timedelta(hours=SHORT))
+                    .then(pl.lit(1e3, dtype=pl.Float32))
+                    .otherwise(pl.col("temperature_2m"))
+                    .alias("temperature_2m")
+                )
+            ),
+        }
+    )
+    assert not available.equals(reference), "stub ignores covariates"
     print("OK data op predict / single date / causality")
 
 

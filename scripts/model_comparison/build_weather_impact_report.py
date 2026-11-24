@@ -473,8 +473,11 @@ def main():
 <p>Both comparisons use the same 8 walk-forward CV folds and the same model
 settings. The <strong>oracle</strong> comparison uses the Open-Meteo Historical
 Forecast files as weather features; the <strong>forecast</strong> comparison
-uses the safe-lead historical forecasts (day1 for 1h/12h, day2 for 24h).
-Positive deltas mean the forecast-weather run is worse, i.e. the oracle score
+uses the safe-lead historical forecasts (day1 for 1h/12h, day2 for 24h; for
+Chronos-2, which forecasts all horizons in one call, day1 for the past and for
+future steps up to 18h, day2 for later steps, i.e. the same lead per target
+hour as the other models: <code>chronos2_ctx4000_day1_stitched</code> run of
+2026-11-23). Positive deltas mean the forecast-weather run is worse, i.e. the oracle score
 was optimistic.</p>
 <p class="note">KumoForecast only accepts past covariates. Its run uses
 oracle/analysis past weather in both comparisons, so it is shown in the table
